@@ -5,11 +5,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,15 +16,17 @@ import (
 	"github.com/willmurray/looper/internal/guards"
 	"github.com/willmurray/looper/internal/progress"
 	"github.com/willmurray/looper/internal/runner"
+	"github.com/willmurray/looper/internal/signals"
 	"github.com/willmurray/looper/internal/ui"
 )
 
 var (
-	flagCycles  int
-	flagPlan    string
-	flagTimeout int
-	flagDryRun  bool
-	flagYes     bool
+	flagCycles   int
+	flagPlan     string
+	flagTimeout  int
+	flagDryRun   bool
+	flagYes      bool
+	flagReviewer string
 )
 
 // Safety guarantees:
@@ -203,15 +203,8 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// Signal handling: Ctrl+C cancels the context, killing any running agent subprocess.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signals.WithInterrupt(context.Background())
 	defer cancel()
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		signal.Stop(sigCh)
-		cancel()
-	}()
 
 	guardState := &guards.State{}
 	totalIterations := 0

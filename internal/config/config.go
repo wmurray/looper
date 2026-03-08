@@ -71,7 +71,7 @@ func Load() (Config, error) {
 	if cfg.Defaults.Cycles == 0 {
 		cfg.Defaults.Cycles = defaultConfig.Defaults.Cycles
 	}
-	if cfg.Defaults.Timeout == 0 {
+	if cfg.Defaults.Timeout < 10 {
 		cfg.Defaults.Timeout = defaultConfig.Defaults.Timeout
 	}
 	if cfg.SkillPath == "" {
@@ -125,7 +125,7 @@ func Get(cfg Config, key string) (string, error) {
 	case "ticket_pattern":
 		return cfg.TicketPattern, nil
 	default:
-		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent)", key)
+		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern)", key)
 	}
 }
 

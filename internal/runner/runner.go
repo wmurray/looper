@@ -3,14 +3,19 @@ package runner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"time"
 )
 
+const backendClaude = "claude"
+
 // Result holds the output and exit code from an agent run.
 type Result struct {
-	Output    string
+	Output    string // stdout from the agent
+	Stderr    string // stderr from the agent process
+	Err       error  // non-nil when the agent binary could not be started (distinct from a non-zero exit)
 	ExitCode  int
 	TimedOut  bool
 	Cancelled bool
@@ -22,7 +27,7 @@ type Result struct {
 func Run(ctx context.Context, prompt string, timeoutSecs int, backend string) Result {
 	binary := binaryFor(backend)
 	args := []string{"-p", prompt, "--output-format", "text"}
-	if backend == "claude" {
+	if backend == backendClaude {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 	return runArgs(ctx, binary, args, timeoutSecs)
@@ -43,6 +48,9 @@ func runArgs(ctx context.Context, binary string, args []string, timeoutSecs int)
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
 	defer cancel()
 
+	// Note: on timeout/cancel, exec.CommandContext sends SIGKILL only to the
+	// direct child process. Any grandchild processes spawned by the agent will
+	// be orphaned. A process-group kill would be needed to clean those up.
 	cmd := exec.CommandContext(timeoutCtx, binary, args...)
 
 	var stdout, stderr bytes.Buffer
@@ -51,34 +59,39 @@ func runArgs(ctx context.Context, binary string, args []string, timeoutSecs int)
 
 	err := cmd.Run()
 
-	// User cancellation takes priority over timeout check
-	if ctx.Err() == context.Canceled {
-		return Result{Output: stdout.String(), ExitCode: 130, Cancelled: true}
-	}
-
-	if timeoutCtx.Err() == context.DeadlineExceeded {
-		return Result{Output: stdout.String(), ExitCode: 124, TimedOut: true}
-	}
-
 	exitCode := 0
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		// User cancellation takes priority over timeout — check parent context first.
+		// These checks are only relevant when cmd.Run returned an error, so a clean
+		// exit (code 0) is never misreported as cancelled even if both fire.
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return Result{Output: stdout.String(), Stderr: stderr.String(), ExitCode: 130, Cancelled: true}
+		}
+		if errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			return Result{Output: stdout.String(), Stderr: stderr.String(), ExitCode: 124, TimedOut: true}
+		}
+
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		} else {
+			// Binary could not be started — this is a runner error, not agent output.
 			return Result{
-				Output:   fmt.Sprintf("Error running %s: %v\nStderr: %s", binary, err, stderr.String()),
+				Output:   stdout.String(),
+				Stderr:   stderr.String(),
+				Err:      fmt.Errorf("error running %s: %w", binary, err),
 				ExitCode: 1,
 			}
 		}
 	}
 
-	return Result{Output: stdout.String(), ExitCode: exitCode}
+	return Result{Output: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode}
 }
 
 func binaryFor(backend string) string {
 	switch backend {
-	case "claude":
-		return "claude"
+	case backendClaude:
+		return backendClaude
 	default:
 		return "agent"
 	}
