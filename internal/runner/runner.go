@@ -21,7 +21,11 @@ type Result struct {
 // backend is "cursor" (calls `agent`) or "claude" (calls `claude`).
 func Run(ctx context.Context, prompt string, timeoutSecs int, backend string) Result {
 	binary := binaryFor(backend)
-	return runArgs(ctx, binary, []string{"-p", prompt, "--output-format", "text"}, timeoutSecs)
+	args := []string{"-p", prompt, "--output-format", "text"}
+	if backend == "claude" {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	return runArgs(ctx, binary, args, timeoutSecs)
 }
 
 // RunAsync executes the agent CLI in a goroutine and returns a channel that
