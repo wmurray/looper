@@ -74,6 +74,7 @@ Config is stored at `~/.config/looper/config.json`.
 | `defaults.timeout` | `420` | Per-iteration timeout in seconds |
 | `skill_path` | `~/.claude/skills/tdd-workflow/SKILL.md` | Workflow skill injected into the execution prompt |
 | `reviewer_agent` | `~/.claude/agents/rails-code-reviewer.md` | Reviewer agent definition injected into the review prompt |
+| `ticket_pattern` | `[A-Z]+-[0-9]+` | Regex for inferring ticket ID from branch name (e.g. `DX-123`) |
 
 ## Skills setup
 

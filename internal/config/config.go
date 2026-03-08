@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -21,6 +22,7 @@ type Config struct {
 	Defaults      Defaults `json:"defaults"`
 	SkillPath     string   `json:"skill_path"`
 	ReviewerAgent string   `json:"reviewer_agent"`
+	TicketPattern string   `json:"ticket_pattern"`
 	TrustedDirs   []string `json:"trusted_dirs,omitempty"`
 }
 
@@ -32,6 +34,7 @@ var defaultConfig = Config{
 	},
 	SkillPath:     "~/.claude/skills/tdd-workflow/SKILL.md",
 	ReviewerAgent: "~/.claude/agents/rails-code-reviewer.md",
+	TicketPattern: `[A-Z]+-[0-9]+`,
 }
 
 func ConfigPath() (string, error) {
@@ -77,6 +80,9 @@ func Load() (Config, error) {
 	if cfg.ReviewerAgent == "" {
 		cfg.ReviewerAgent = defaultConfig.ReviewerAgent
 	}
+	if cfg.TicketPattern == "" {
+		cfg.TicketPattern = defaultConfig.TicketPattern
+	}
 
 	return cfg, nil
 }
@@ -116,6 +122,8 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.SkillPath, nil
 	case "reviewer_agent":
 		return cfg.ReviewerAgent, nil
+	case "ticket_pattern":
+		return cfg.TicketPattern, nil
 	default:
 		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent)", key)
 	}
@@ -145,8 +153,13 @@ func Set(cfg Config, key, value string) (Config, error) {
 		cfg.SkillPath = value
 	case "reviewer_agent":
 		cfg.ReviewerAgent = value
+	case "ticket_pattern":
+		if _, err := regexp.Compile(value); err != nil {
+			return cfg, fmt.Errorf("ticket_pattern is not a valid regex: %w", err)
+		}
+		cfg.TicketPattern = value
 	default:
-		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent)", key)
+		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern)", key)
 	}
 	return cfg, nil
 }

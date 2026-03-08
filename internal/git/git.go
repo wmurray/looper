@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-var ticketRegex = regexp.MustCompile(`[A-Z]+-[0-9]+`)
 
 func run(args ...string) (string, error) {
 	out, err := exec.Command("git", args...).Output()
@@ -37,17 +36,16 @@ func AssertClean() error {
 }
 
 // InferTicketFromBranch returns a ticket ID from the current branch name, or "".
-func InferTicketFromBranch() string {
+func InferTicketFromBranch(re *regexp.Regexp) string {
 	branch, err := run("rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return ""
 	}
-	match := ticketRegex.FindString(branch)
-	return match
+	return re.FindString(branch)
 }
 
-// InferTicketFromPlan scans the first 10 lines of a plan file for "Ticket: DX-123".
-func InferTicketFromPlan(path string) string {
+// InferTicketFromPlan scans the first 10 lines of a plan file for a ticket ID.
+func InferTicketFromPlan(path string, re *regexp.Regexp) string {
 	f, err := os.Open(path)
 	if err != nil {
 		return ""
@@ -59,8 +57,7 @@ func InferTicketFromPlan(path string) string {
 		line := scanner.Text()
 		lower := strings.ToLower(line)
 		if strings.HasPrefix(lower, "ticket:") || strings.Contains(lower, "ticket:") {
-			match := ticketRegex.FindString(line)
-			if match != "" {
+			if match := re.FindString(line); match != "" {
 				return match
 			}
 		}

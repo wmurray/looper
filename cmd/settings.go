@@ -25,7 +25,8 @@ Valid keys:
   defaults.cycles     Default number of loop cycles
   defaults.timeout    Default timeout in seconds per iteration
   skill_path          Path to skill/workflow file
-  reviewer_agent      Path to reviewer agent file`,
+  reviewer_agent      Path to reviewer agent file
+  ticket_pattern      Regex for inferring ticket ID from branch name (default: [A-Z]+-[0-9]+)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
