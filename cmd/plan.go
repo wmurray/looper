@@ -5,9 +5,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/willmurray/looper/internal/config"
 	"github.com/willmurray/looper/internal/git"
 )
 
@@ -30,7 +32,15 @@ Use --open to open the file in $EDITOR after creation.`,
 		if len(args) > 0 {
 			ticket = strings.ToUpper(args[0])
 		} else {
-			ticket = git.InferTicketFromBranch()
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+			ticketRe, err := regexp.Compile(cfg.TicketPattern)
+			if err != nil {
+				return fmt.Errorf("invalid ticket_pattern %q: %w", cfg.TicketPattern, err)
+			}
+			ticket = git.InferTicketFromBranch(ticketRe)
 			if ticket == "" {
 				return fmt.Errorf("could not infer ticket from branch name\nPass a ticket ID explicitly: looper plan DX-123")
 			}

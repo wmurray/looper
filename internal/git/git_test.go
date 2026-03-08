@@ -3,8 +3,11 @@ package git
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 )
+
+var defaultTicketRe = regexp.MustCompile(`[A-Z]+-[0-9]+`)
 
 // --- firstLine ---
 
@@ -57,7 +60,7 @@ func writePlanFile(t *testing.T, content string) string {
 
 func TestInferTicketFromPlan_HeaderFormat(t *testing.T) {
 	path := writePlanFile(t, "# Ticket: DX-123\n\n## Objective\nDo a thing\n")
-	result := InferTicketFromPlan(path)
+	result := InferTicketFromPlan(path, defaultTicketRe)
 	if result != "DX-123" {
 		t.Errorf("expected DX-123, got %q", result)
 	}
@@ -65,7 +68,7 @@ func TestInferTicketFromPlan_HeaderFormat(t *testing.T) {
 
 func TestInferTicketFromPlan_InlineFormat(t *testing.T) {
 	path := writePlanFile(t, "# My Plan\n\nThis relates to ticket: ABC-456\n")
-	result := InferTicketFromPlan(path)
+	result := InferTicketFromPlan(path, defaultTicketRe)
 	if result != "ABC-456" {
 		t.Errorf("expected ABC-456, got %q", result)
 	}
@@ -73,7 +76,7 @@ func TestInferTicketFromPlan_InlineFormat(t *testing.T) {
 
 func TestInferTicketFromPlan_NoTicket(t *testing.T) {
 	path := writePlanFile(t, "# My Plan\n\nNo ticket mentioned here.\n")
-	result := InferTicketFromPlan(path)
+	result := InferTicketFromPlan(path, defaultTicketRe)
 	if result != "" {
 		t.Errorf("expected empty string, got %q", result)
 	}
@@ -82,14 +85,14 @@ func TestInferTicketFromPlan_NoTicket(t *testing.T) {
 func TestInferTicketFromPlan_TicketBeyondLine10(t *testing.T) {
 	content := "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nTicket: LATE-999\n"
 	path := writePlanFile(t, content)
-	result := InferTicketFromPlan(path)
+	result := InferTicketFromPlan(path, defaultTicketRe)
 	if result != "" {
 		t.Errorf("ticket beyond line 10 should not be found, got %q", result)
 	}
 }
 
 func TestInferTicketFromPlan_NonexistentFile(t *testing.T) {
-	result := InferTicketFromPlan("/nonexistent/path/PLAN.md")
+	result := InferTicketFromPlan("/nonexistent/path/PLAN.md", defaultTicketRe)
 	if result != "" {
 		t.Errorf("expected empty string for missing file, got %q", result)
 	}
@@ -97,7 +100,7 @@ func TestInferTicketFromPlan_NonexistentFile(t *testing.T) {
 
 func TestInferTicketFromPlan_CaseInsensitiveHeader(t *testing.T) {
 	path := writePlanFile(t, "TICKET: XY-789\n")
-	result := InferTicketFromPlan(path)
+	result := InferTicketFromPlan(path, defaultTicketRe)
 	if result != "XY-789" {
 		t.Errorf("expected XY-789, got %q", result)
 	}

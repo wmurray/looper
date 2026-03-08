@@ -88,10 +88,16 @@ func runImplement(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Compile ticket pattern
+	ticketRe, err := regexp.Compile(cfg.TicketPattern)
+	if err != nil {
+		return fmt.Errorf("invalid ticket_pattern %q: %w", cfg.TicketPattern, err)
+	}
+
 	// Ticket inference
-	ticket := git.InferTicketFromBranch()
+	ticket := git.InferTicketFromBranch(ticketRe)
 	if ticket == "" && planFile != "" {
-		ticket = git.InferTicketFromPlan(planFile)
+		ticket = git.InferTicketFromPlan(planFile, ticketRe)
 	}
 	if ticket == "" {
 		ticket = "UNKNOWN"
