@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
@@ -98,6 +99,9 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	ticket := git.InferTicketFromBranch(ticketRe)
 	if ticket == "" && planFile != "" {
 		ticket = git.InferTicketFromPlan(planFile, ticketRe)
+	}
+	if ticket == "" && planFile != "" {
+		ticket = ticketRe.FindString(filepath.Base(planFile))
 	}
 	if ticket == "" {
 		ticket = "UNKNOWN"
