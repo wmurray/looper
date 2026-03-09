@@ -68,21 +68,17 @@ func TestBeginRun_AppendsRunHeader(t *testing.T) {
 
 // --- WriteExecution ---
 
-func TestWriteExecution_ContainsFields(t *testing.T) {
+func TestWriteExecution_ContainsOutput(t *testing.T) {
 	w, path := newTestWriter(t)
 	w.WriteHeader()
 	w.BeginRun(1)
-	err := w.WriteExecution("Added auth middleware", "M app.rb", "diff --git a/app.rb")
+	err := w.WriteExecution("Added auth middleware")
 	if err != nil {
 		t.Fatalf("WriteExecution error: %v", err)
 	}
 	content := readFile(t, path)
-	assertContains(t, content, "Added auth middleware")
-	assertContains(t, content, "M app.rb")
-	assertContains(t, content, "diff --git a/app.rb")
 	assertContains(t, content, "### Execution")
-	assertContains(t, content, "Git Status")
-	assertContains(t, content, "Git Diff")
+	assertContains(t, content, "Added auth middleware")
 }
 
 // --- WriteReview ---

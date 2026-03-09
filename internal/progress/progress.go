@@ -43,22 +43,8 @@ func (w *Writer) BeginRun(i int) error {
 	return w.append(fmt.Sprintf("\n## RUN %d\n\n", i))
 }
 
-func (w *Writer) WriteExecution(output, gitStatus, gitDiff string) error {
-	return w.append(fmt.Sprintf(`### Execution
-
-%s
-
-**Git Status:**
-`+"```"+`
-%s
-`+"```"+`
-
-**Git Diff:**
-`+"```diff"+`
-%s
-`+"```"+`
-
-`, output, gitStatus, gitDiff))
+func (w *Writer) WriteExecution(output string) error {
+	return w.append(fmt.Sprintf("### Execution\n\n%s\n\n", output))
 }
 
 func (w *Writer) WriteReview(output string) error {
@@ -138,7 +124,9 @@ func (w *Writer) append(s string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	_, err = f.WriteString(s)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
 	return err
 }
