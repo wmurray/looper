@@ -140,6 +140,46 @@ func RecentCommits(n int) string {
 	return out
 }
 
+// BranchExists reports whether a local branch with the given name exists.
+func BranchExists(name string) bool {
+	_, err := run("rev-parse", "--verify", name)
+	return err == nil
+}
+
+// Checkout switches to an existing branch.
+func Checkout(name string) error {
+	if out, err := exec.Command("git", "checkout", name).CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// HasIterationWork reports whether the current branch has any iteration or WIP
+// commits (i.e. the implement loop has run at least once).
+//
+// To avoid false positives from matching commits on the base branch, only
+// commits reachable from HEAD but not from any other local branch are searched.
+func HasIterationWork() bool {
+	// Build an exclusion list of all other local branches.
+	// git log HEAD ^branchA ^branchB ... scopes output to this branch's unique commits.
+	allRefs, _ := run("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+	current, _ := run("rev-parse", "--abbrev-ref", "HEAD")
+
+	// Multiple --grep patterns use OR semantics by default (not AND).
+	// Do not add --all-match here — we want either pattern to be a match.
+	args := []string{"log", "--oneline", "--grep=^Iteration ", "--grep=^WIP: Iteration"}
+	for _, b := range strings.Split(allRefs, "\n") {
+		b = strings.TrimSpace(b)
+		if b != "" && b != strings.TrimSpace(current) {
+			args = append(args, "^"+b)
+		}
+	}
+
+	// Ignore the error: if git log fails, conservatively report no iteration work.
+	out, _ := run(args...)
+	return strings.TrimSpace(out) != ""
+}
+
 // CheckoutNewBranch creates and switches to a new branch.
 func CheckoutNewBranch(name string) error {
 	if out, err := exec.Command("git", "checkout", "-b", name).CombinedOutput(); err != nil {
