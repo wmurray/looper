@@ -24,6 +24,7 @@ type Config struct {
 	ReviewerAgent string   `json:"reviewer_agent"`
 	TicketPattern string   `json:"ticket_pattern"`
 	TrustedDirs   []string `json:"trusted_dirs,omitempty"`
+	LinearAPIKey  string   `json:"linear_api_key,omitempty"`
 }
 
 var defaultConfig = Config{
@@ -124,8 +125,10 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.ReviewerAgent, nil
 	case "ticket_pattern":
 		return cfg.TicketPattern, nil
+	case "linear_api_key":
+		return cfg.LinearAPIKey, nil
 	default:
-		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern)", key)
+		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key)", key)
 	}
 }
 
@@ -158,8 +161,10 @@ func Set(cfg Config, key, value string) (Config, error) {
 			return cfg, fmt.Errorf("ticket_pattern is not a valid regex: %w", err)
 		}
 		cfg.TicketPattern = value
+	case "linear_api_key":
+		cfg.LinearAPIKey = value
 	default:
-		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern)", key)
+		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key)", key)
 	}
 	return cfg, nil
 }
