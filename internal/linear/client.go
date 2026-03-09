@@ -243,7 +243,7 @@ func (c *Client) do(ctx context.Context, query string, variables map[string]any,
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
