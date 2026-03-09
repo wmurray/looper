@@ -1,6 +1,7 @@
 package linear
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -161,7 +162,7 @@ func TestGetIssue_HappyPath(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	issue, err := client.GetIssue("ENG-42")
+	issue, err := client.GetIssue(context.Background(), "ENG-42")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -201,7 +202,7 @@ func TestGetIssue_WithAttachments(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	issue, err := client.GetIssue("ENG-1")
+	issue, err := client.GetIssue(context.Background(), "ENG-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -222,7 +223,7 @@ func TestGetIssue_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	_, err := client.GetIssue("NOPE-999")
+	_, err := client.GetIssue(context.Background(), "NOPE-999")
 	if err == nil {
 		t.Fatal("expected error for missing issue")
 	}
@@ -238,7 +239,7 @@ func TestGetIssue_GraphQLError(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	_, err := client.GetIssue("ENG-1")
+	_, err := client.GetIssue(context.Background(), "ENG-1")
 	if err == nil {
 		t.Fatal("expected error for GraphQL error response")
 	}
@@ -256,7 +257,7 @@ func TestGetIssue_HTTPError(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	_, err := client.GetIssue("ENG-1")
+	_, err := client.GetIssue(context.Background(), "ENG-1")
 	if err == nil {
 		t.Fatal("expected error for HTTP 401")
 	}
@@ -297,7 +298,7 @@ func TestSetInProgress_HappyPath(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	if err := client.SetInProgress("issue-uuid", "team-uuid"); err != nil {
+	if err := client.SetInProgress(context.Background(), "issue-uuid", "team-uuid"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if reqCount != 2 {
@@ -321,7 +322,7 @@ func TestSetInProgress_NoStartedState(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	err := client.SetInProgress("issue-uuid", "team-uuid")
+	err := client.SetInProgress(context.Background(), "issue-uuid", "team-uuid")
 	if err == nil {
 		t.Fatal("expected error when no started state exists")
 	}
@@ -357,7 +358,7 @@ func TestSetInProgress_UpdateFails(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	err := client.SetInProgress("issue-uuid", "team-uuid")
+	err := client.SetInProgress(context.Background(), "issue-uuid", "team-uuid")
 	if err == nil {
 		t.Fatal("expected error when issueUpdate returns success=false")
 	}
