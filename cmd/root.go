@@ -10,6 +10,7 @@ var rootCmd = &cobra.Command{
 	Long: `looper runs an automated implement/review cycle against a plan file.
 
 Commands:
+  start       Fetch a Linear ticket, branch, plan, and implement
   implement   Run the agent loop against a plan file
   plan        Create a plan file with the correct naming scheme
   settings    View or set default configuration`,
@@ -20,6 +21,7 @@ func Execute() error {
 }
 
 func init() {
+	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(implementCmd)
 	rootCmd.AddCommand(planCmd)
 	rootCmd.AddCommand(settingsCmd)
