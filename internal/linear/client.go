@@ -203,6 +203,42 @@ func PlanFromAttachment(attachments []Attachment) (string, bool) {
 	return "", false
 }
 
+// AttachPlan creates a looper-plan attachment on the issue embedding the plan
+// content as a base64 data URI. Call only when the issue has no existing plan
+// attachment (i.e. PlanFromAttachment returned false).
+func (c *Client) AttachPlan(ctx context.Context, issueID, content string) error {
+	encoded := base64.StdEncoding.EncodeToString([]byte(content))
+	dataURI := "data:text/plain;base64," + encoded
+
+	query := `
+mutation($input: AttachmentCreateInput!) {
+  attachmentCreate(input: $input) {
+    success
+  }
+}`
+	var resp struct {
+		Data struct {
+			AttachmentCreate struct {
+				Success bool `json:"success"`
+			} `json:"attachmentCreate"`
+		} `json:"data"`
+	}
+
+	if err := c.do(ctx, query, map[string]any{
+		"input": map[string]any{
+			"issueId": issueID,
+			"title":   "looper-plan",
+			"url":     dataURI,
+		},
+	}, &resp); err != nil {
+		return fmt.Errorf("attachmentCreate: %w", err)
+	}
+	if !resp.Data.AttachmentCreate.Success {
+		return fmt.Errorf("attachmentCreate returned success=false")
+	}
+	return nil
+}
+
 // branchSlugRe matches any run of characters that are not lowercase ASCII alphanumeric.
 var branchSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
