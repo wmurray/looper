@@ -35,7 +35,7 @@ Steps:
   2. git checkout -b <branch>
   3. Set the ticket state to In Progress
   4. Resolve the plan: decode from a looper-plan attachment, or generate via AI
-  5. Commit the plan file, then run the implement loop
+  5. Attach the plan to the Linear ticket, then run the implement loop
 
 Requires linear_api_key to be set:
   looper settings set linear_api_key <your-key>`,
@@ -157,9 +157,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		// Generate plan from the ticket description via AI.
+		var planContent []byte
 		if issue.Description == "" {
 			ui.Warn("Ticket has no description — generating minimal plan template")
-			if err := writePlanTemplate(planFile, issue.Identifier); err != nil {
+			planContent = planTemplateBytes(issue.Identifier)
+			if err := os.WriteFile(planFile, planContent, 0644); err != nil {
 				return fmt.Errorf("write plan template: %w", err)
 			}
 		} else {
@@ -191,18 +193,27 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 			genSpinner.Stop()
 
-			if err := os.WriteFile(planFile, []byte(strings.TrimSpace(result.Output)+"\n"), 0644); err != nil {
+			planContent = []byte(strings.TrimSpace(result.Output) + "\n")
+			if err := os.WriteFile(planFile, planContent, 0644); err != nil {
 				return fmt.Errorf("write plan file: %w", err)
 			}
+		}
+
+		// Attach the generated plan to the Linear ticket so it travels with the issue.
+		// Non-fatal: a failure here should not block the implement loop.
+		attachSpinner := ui.NewSpinner(fmt.Sprintf("Attaching plan to %s...", issue.Identifier))
+		attachSpinner.Start()
+		if err := client.AttachPlan(ctx, issue.ID, string(planContent)); err != nil {
+			attachSpinner.Abort()
+			if ctx.Err() == nil {
+				ui.Warn("Could not attach plan to Linear: %v", err)
+			}
+		} else {
+			attachSpinner.Stop()
 		}
 	}
 
 	ui.Phase("Plan written: %s", planFile)
-
-	// Commit the plan file to establish a clean baseline before the agent loop begins.
-	if err := git.CommitPlan(planFile, issue.Identifier); err != nil {
-		return fmt.Errorf("commit plan: %w", err)
-	}
 
 	// --- SKILL FILE WARNINGS ---
 	skillPath := config.ExpandPath(cfg.SkillPath)

@@ -154,8 +154,8 @@ func init() {
 	planCmd.Flags().String("prompt", "", "Generate plan content via AI using this prompt (ignored if plan already exists)")
 }
 
-func writePlanTemplate(filename, ticket string) error {
-	content := fmt.Sprintf(`# Ticket: %s
+func planTemplateBytes(ticket string) []byte {
+	return []byte(fmt.Sprintf(`# Ticket: %s
 
 ## Objective
 <!-- What needs to be done -->
@@ -174,9 +174,11 @@ func writePlanTemplate(filename, ticket string) error {
 
 ## Out of Scope
 -
-`, ticket)
+`, ticket))
+}
 
-	return os.WriteFile(filename, []byte(content), planFileMode)
+func writePlanTemplate(filename, ticket string) error {
+	return os.WriteFile(filename, planTemplateBytes(ticket), planFileMode)
 }
 
 const planPromptTemplate = `You are a senior software engineer writing a technical implementation plan.
