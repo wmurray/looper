@@ -65,7 +65,7 @@ func init() {
 }
 
 func runImplement(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load()
+	cfg, _, _, err := config.LoadWithRepo()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
