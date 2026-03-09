@@ -25,6 +25,27 @@ var (
 	startFlagDryRun  bool
 )
 
+// resumeState describes how far a previous interrupted run got.
+type resumeState int
+
+const (
+	resumeNoPlan       resumeState = iota // branch exists, no plan, no iterations
+	resumePlanExists                      // plan written, loop not yet started
+	resumeHasIterations                   // implement loop ran at least once
+)
+
+// resolveResumeState classifies the current resume state using injected predicates.
+// Using function parameters makes this testable without a real git repo or filesystem.
+func resolveResumeState(hasWork func() bool, statPlan func() error) resumeState {
+	if hasWork() {
+		return resumeHasIterations
+	}
+	if statPlan() == nil {
+		return resumePlanExists
+	}
+	return resumeNoPlan
+}
+
 var startCmd = &cobra.Command{
 	Use:   "start <TICKET-ID>",
 	Short: "Start a Linear ticket: fetch, branch, plan, and implement",
@@ -129,9 +150,18 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	ui.Phase("Creating branch: %s", branchName)
-	if err := git.CheckoutNewBranch(branchName); err != nil {
-		return fmt.Errorf("create branch: %w", err)
+	resumed := false
+	if git.BranchExists(branchName) {
+		ui.Phase("Branch %s already exists — resuming", branchName)
+		if err := git.Checkout(branchName); err != nil {
+			return fmt.Errorf("switch to branch: %w", err)
+		}
+		resumed = true
+	} else {
+		ui.Phase("Creating branch: %s", branchName)
+		if err := git.CheckoutNewBranch(branchName); err != nil {
+			return fmt.Errorf("create branch: %w", err)
+		}
 	}
 
 	// --- SET IN PROGRESS ---
@@ -149,71 +179,98 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// --- RESOLVE PLAN ---
 	planFile := issue.Identifier + "_PLAN.md"
 
-	if plan, ok := linear.PlanFromAttachment(issue.Attachments); ok {
-		// Attachment contains a pre-written plan — use it directly.
-		ui.Phase("Using plan from looper-plan attachment")
-		if err := os.WriteFile(planFile, []byte(strings.TrimSpace(plan)+"\n"), 0644); err != nil {
-			return fmt.Errorf("write plan file: %w", err)
-		}
-	} else {
-		// Generate plan from the ticket description via AI.
-		var planContent []byte
-		if issue.Description == "" {
-			ui.Warn("Ticket has no description — generating minimal plan template")
-			planContent = planTemplateBytes(issue.Identifier)
-			if err := os.WriteFile(planFile, planContent, 0644); err != nil {
-				return fmt.Errorf("write plan template: %w", err)
+	// On resume: short-circuit based on how far the previous run got.
+	skipPlanGeneration := false
+	if resumed {
+		switch resolveResumeState(git.HasIterationWork, func() error {
+			_, err := os.Stat(planFile)
+			return err
+		}) {
+		case resumeHasIterations:
+			// Implement loop ran at least once — resume it directly.
+			if _, err := os.Stat(planFile); err != nil {
+				return fmt.Errorf("resuming %s: plan file %s not found (was it deleted?)", issue.Identifier, planFile)
 			}
-		} else {
-			genSpinner := ui.NewSpinner(fmt.Sprintf("Generating %s via %s...", planFile, cfg.Backend))
-			genSpinner.Start()
-
-			prompt := buildPlanPrompt(issue.Identifier, issue.Description)
-			result := <-runner.RunAsync(ctx, prompt, cfg.Defaults.Timeout, cfg.Backend)
-
-			if result.Cancelled {
-				genSpinner.Abort()
-				return errors.New("interrupted")
-			}
-			if result.TimedOut {
-				genSpinner.Abort()
-				return fmt.Errorf("plan generation timed out after %ds", cfg.Defaults.Timeout)
-			}
-			if result.ExitCode != 0 {
-				genSpinner.Abort()
-				if result.Err != nil {
-					return fmt.Errorf("agent could not start: %w", result.Err)
-				}
-				return fmt.Errorf("plan generation failed (exit %d)", result.ExitCode)
-			}
-			if strings.TrimSpace(result.Output) == "" {
-				genSpinner.Abort()
-				return errors.New("agent returned empty plan — aborting")
-			}
-
-			genSpinner.Stop()
-
-			planContent = []byte(strings.TrimSpace(result.Output) + "\n")
-			if err := os.WriteFile(planFile, planContent, 0644); err != nil {
-				return fmt.Errorf("write plan file: %w", err)
-			}
-		}
-
-		// Attach the generated plan to the Linear ticket so it travels with the issue.
-		// Non-fatal: a failure here should not block the implement loop.
-		attachSpinner := ui.NewSpinner(fmt.Sprintf("Attaching plan to %s...", issue.Identifier))
-		attachSpinner.Start()
-		if err := client.AttachPlan(ctx, issue.ID, string(planContent)); err != nil {
-			attachSpinner.Abort()
-			if ctx.Err() == nil {
-				ui.Warn("Could not attach plan to Linear: %v", err)
-			}
-		} else {
-			attachSpinner.Stop()
+			ui.Phase("Resuming implement loop for %s", issue.Identifier)
+			fmt.Println()
+			return implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout)
+		case resumePlanExists:
+			// Plan written but loop never started — skip generation.
+			ui.Phase("Plan already exists: %s", planFile)
+			skipPlanGeneration = true
+		case resumeNoPlan:
+			// Branch exists but neither plan nor iterations — re-run plan generation.
 		}
 	}
 
-	ui.Phase("Plan written: %s", planFile)
+	needsPlan := !skipPlanGeneration
+	if needsPlan {
+		if plan, ok := linear.PlanFromAttachment(issue.Attachments); ok {
+			// Attachment contains a pre-written plan — use it directly.
+			ui.Phase("Using plan from looper-plan attachment")
+			if err := os.WriteFile(planFile, []byte(strings.TrimSpace(plan)+"\n"), 0644); err != nil {
+				return fmt.Errorf("write plan file: %w", err)
+			}
+		} else {
+			// Generate plan from the ticket description via AI.
+			var planContent []byte
+			if issue.Description == "" {
+				ui.Warn("Ticket has no description — generating minimal plan template")
+				planContent = planTemplateBytes(issue.Identifier)
+				if err := os.WriteFile(planFile, planContent, 0644); err != nil {
+					return fmt.Errorf("write plan template: %w", err)
+				}
+			} else {
+				genSpinner := ui.NewSpinner(fmt.Sprintf("Generating %s via %s...", planFile, cfg.Backend))
+				genSpinner.Start()
+
+				prompt := buildPlanPrompt(issue.Identifier, issue.Description)
+				result := <-runner.RunAsync(ctx, prompt, cfg.Defaults.Timeout, cfg.Backend)
+
+				if result.Cancelled {
+					genSpinner.Abort()
+					return errors.New("interrupted")
+				}
+				if result.TimedOut {
+					genSpinner.Abort()
+					return fmt.Errorf("plan generation timed out after %ds", cfg.Defaults.Timeout)
+				}
+				if result.ExitCode != 0 {
+					genSpinner.Abort()
+					if result.Err != nil {
+						return fmt.Errorf("agent could not start: %w", result.Err)
+					}
+					return fmt.Errorf("plan generation failed (exit %d)", result.ExitCode)
+				}
+				if strings.TrimSpace(result.Output) == "" {
+					genSpinner.Abort()
+					return errors.New("agent returned empty plan — aborting")
+				}
+
+				genSpinner.Stop()
+
+				planContent = []byte(strings.TrimSpace(result.Output) + "\n")
+				if err := os.WriteFile(planFile, planContent, 0644); err != nil {
+					return fmt.Errorf("write plan file: %w", err)
+				}
+			}
+
+			// Attach the generated plan to the Linear ticket so it travels with the issue.
+			// Non-fatal: a failure here should not block the implement loop.
+			attachSpinner := ui.NewSpinner(fmt.Sprintf("Attaching plan to %s...", issue.Identifier))
+			attachSpinner.Start()
+			if err := client.AttachPlan(ctx, issue.ID, string(planContent)); err != nil {
+				attachSpinner.Abort()
+				if ctx.Err() == nil {
+					ui.Warn("Could not attach plan to Linear: %v", err)
+				}
+			} else {
+				attachSpinner.Stop()
+			}
+		}
+
+		ui.Phase("Plan written: %s", planFile)
+	}
 
 	// --- SKILL FILE WARNINGS ---
 	skillPath := config.ExpandPath(cfg.SkillPath)
