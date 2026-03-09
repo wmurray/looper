@@ -103,7 +103,7 @@ func Save(cfg Config) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func Reset() error {
