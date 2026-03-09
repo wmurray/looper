@@ -29,7 +29,7 @@ Valid keys:
   ticket_pattern      Regex for inferring ticket ID from branch name (default: [A-Z]+-[0-9]+)
   linear_api_key      Linear personal API key (used by looper start)`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		cfg, repoConfigPath, repoKeys, err := config.LoadWithRepo()
 		if err != nil {
 			return err
 		}
@@ -40,6 +40,15 @@ Valid keys:
 		fmt.Println(string(data))
 		path, _ := config.ConfigPath()
 		fmt.Fprintf(os.Stderr, "\n(config file: %s)\n", path)
+		if repoConfigPath != "" {
+			fmt.Fprintf(os.Stderr, "(repo config: %s)\n", repoConfigPath)
+			if len(repoKeys) > 0 {
+				fmt.Fprintf(os.Stderr, "\nRepo overrides:\n")
+				for _, k := range repoKeys {
+					fmt.Fprintf(os.Stderr, "  %s  [repo]\n", k)
+				}
+			}
+		}
 		return nil
 	},
 }
@@ -49,7 +58,7 @@ var settingsGetCmd = &cobra.Command{
 	Short: "Get a configuration value",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		cfg, _, _, err := config.LoadWithRepo()
 		if err != nil {
 			return err
 		}
@@ -67,6 +76,9 @@ var settingsSetCmd = &cobra.Command{
 	Short: "Set a configuration value",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Intentionally uses Load (global only), not LoadWithRepo: settings set
+		// writes to the global config file and must not be influenced by a
+		// read-only repo config.
 		cfg, err := config.Load()
 		if err != nil {
 			return err

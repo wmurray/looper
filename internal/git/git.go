@@ -15,10 +15,20 @@ func run(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// RepoRoot returns the absolute path of the root of the current git repository,
+// or an error if the working directory is not inside a git repository.
+func RepoRoot() (string, error) {
+	root, err := run("rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("not in a git repository: %w", err)
+	}
+	return root, nil
+}
+
 // AssertRepo returns an error if not in a git repository.
 func AssertRepo() error {
 	if _, err := run("rev-parse", "--git-dir"); err != nil {
-		return fmt.Errorf("not in a git repository")
+		return fmt.Errorf("not in a git repository: %w", err)
 	}
 	return nil
 }

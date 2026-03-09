@@ -47,7 +47,7 @@ Use --open to open the file in $EDITOR after creation.`,
 			if loadedCfg != nil {
 				return loadedCfg, nil
 			}
-			c, err := config.Load()
+			c, _, _, err := config.LoadWithRepo()
 			if err != nil {
 				return nil, fmt.Errorf("failed to load config: %w", err)
 			}
