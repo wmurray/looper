@@ -110,12 +110,16 @@ func TestInferTicketFromPlan_CaseInsensitiveHeader(t *testing.T) {
 // These are integration-level and run only when git is available.
 
 func TestAssertRepo_NotARepo(t *testing.T) {
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
 	dir := t.TempDir()
 	if err := os.Chdir(dir); err != nil {
 		t.Skipf("could not chdir to temp dir: %v", err)
 	}
-	err := AssertRepo()
-	if err == nil {
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	if err := AssertRepo(); err == nil {
 		t.Fatal("expected error when not in a git repo")
 	}
 }

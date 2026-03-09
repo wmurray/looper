@@ -334,6 +334,108 @@ func TestSetInProgress_NoStartedState(t *testing.T) {
 	}
 }
 
+// --- AttachPlan ---
+
+func TestAttachPlan_HappyPath(t *testing.T) {
+	t.Parallel()
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		writeJSON(w, 200, map[string]any{
+			"data": map[string]any{
+				"attachmentCreate": map[string]any{"success": true},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	content := "# Ticket: ENG-1\n\n## Objective\nDo the thing\n"
+	client := newTestClient(t, srv)
+	if err := client.AttachPlan(context.Background(), "issue-uuid", content); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the attachment input contains the expected title and encoded content.
+	vars, _ := gotBody["variables"].(map[string]any)
+	input, _ := vars["input"].(map[string]any)
+	if input["title"] != "looper-plan" {
+		t.Errorf("title = %q, want %q", input["title"], "looper-plan")
+	}
+	url, _ := input["url"].(string)
+	const prefix = "data:text/plain;base64,"
+	if !strings.HasPrefix(url, prefix) {
+		t.Errorf("url does not start with data URI prefix: %q", url)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(url[len(prefix):])
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	if string(decoded) != content {
+		t.Errorf("decoded content = %q, want %q", string(decoded), content)
+	}
+}
+
+func TestAttachPlan_SuccessFalse(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{
+			"data": map[string]any{
+				"attachmentCreate": map[string]any{"success": false},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	err := client.AttachPlan(context.Background(), "issue-uuid", "plan content")
+	if err == nil {
+		t.Fatal("expected error when success=false")
+	}
+	if !strings.Contains(err.Error(), "success=false") {
+		t.Errorf("expected 'success=false' in error, got: %v", err)
+	}
+}
+
+func TestAttachPlan_HTTPError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+		w.Write([]byte("Forbidden"))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	err := client.AttachPlan(context.Background(), "issue-uuid", "plan content")
+	if err == nil {
+		t.Fatal("expected error for HTTP 403")
+	}
+	if !strings.Contains(err.Error(), "403") {
+		t.Errorf("expected status code in error, got: %v", err)
+	}
+}
+
+func TestAttachPlan_GraphQLError(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{
+			"errors": []any{map[string]any{"message": "Entity not found"}},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	err := client.AttachPlan(context.Background(), "issue-uuid", "plan content")
+	if err == nil {
+		t.Fatal("expected error for GraphQL errors array")
+	}
+	if !strings.Contains(err.Error(), "Entity not found") {
+		t.Errorf("expected error message in output, got: %v", err)
+	}
+}
+
 func TestSetInProgress_UpdateFails(t *testing.T) {
 	t.Parallel()
 	var reqCount atomic.Int32
