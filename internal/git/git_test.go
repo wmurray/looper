@@ -120,7 +120,7 @@ func TestAssertRepo_NotARepo(t *testing.T) {
 	}
 	dir := t.TempDir()
 	if err := os.Chdir(dir); err != nil {
-		t.Skipf("could not chdir to temp dir: %v", err)
+		t.Fatalf("could not chdir to temp dir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
 	if err := AssertRepo(); err == nil {
@@ -354,7 +354,7 @@ func TestRepoRoot_NotInRepo(t *testing.T) {
 	}
 	dir := t.TempDir()
 	if err := os.Chdir(dir); err != nil {
-		t.Skipf("could not chdir: %v", err)
+		t.Fatalf("could not chdir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
 

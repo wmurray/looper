@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -382,6 +383,18 @@ func TestLoadWithRepo_ReturnsOverlayKeys(t *testing.T) {
 			t.Errorf("unexpected overlay key %q", k)
 		}
 	}
+	for k := range want {
+		found := false
+		for _, k2 := range keys {
+			if k == k2 {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected overlay key %q not present in %v", k, keys)
+		}
+	}
 }
 
 func TestLoadWithRepo_ZeroValuesNotInOverlayKeys(t *testing.T) {
@@ -465,6 +478,99 @@ func TestLoadWithRepo_ZeroValuesDoNotOverride(t *testing.T) {
 	}
 	if cfg.Backend != defaultConfig.Backend {
 		t.Errorf("backend = %q, want %q (empty should not override)", cfg.Backend, defaultConfig.Backend)
+	}
+}
+
+func TestLoadWithRepo_NotInGitRepo_ReturnsGlobal(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir() // plain dir, no git init
+
+	cfg, repoPath, keys, err := loadWithRepoAt(t, dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if repoPath != "" {
+		t.Errorf("expected empty repoPath outside git repo, got %q", repoPath)
+	}
+	if len(keys) != 0 {
+		t.Errorf("expected no overlay keys outside git repo, got %v", keys)
+	}
+	if cfg.Backend != defaultConfig.Backend {
+		t.Errorf("backend = %q, want %q", cfg.Backend, defaultConfig.Backend)
+	}
+}
+
+func TestLoadWithRepo_ReadErrorIncludesPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repoDir := initTempGitRepo(t)
+
+	// Create .looper.json as a directory so ReadFile fails with a non-ENOENT error.
+	looperDir := filepath.Join(repoDir, ".looper.json")
+	if err := os.Mkdir(looperDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	_, _, _, err := loadWithRepoAt(t, repoDir)
+	if err == nil {
+		t.Fatal("expected error when .looper.json is a directory")
+	}
+	if !strings.Contains(err.Error(), ".looper.json") {
+		t.Errorf("error %q does not contain the repo config path", err.Error())
+	}
+}
+
+func TestApplyRepoOverlay_TrustedDirsExcluded(t *testing.T) {
+	dst := Config{TrustedDirs: []string{"/existing"}}
+	src := Config{TrustedDirs: []string{"/injected"}, Backend: "cursor"}
+
+	result, _ := applyRepoOverlay(dst, src)
+
+	if len(result.TrustedDirs) != 1 || result.TrustedDirs[0] != "/existing" {
+		t.Errorf("TrustedDirs = %v, want [/existing] — repo config must not modify TrustedDirs", result.TrustedDirs)
+	}
+}
+
+func TestLoadWithRepo_TimeoutAtMinBoundary(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repoDir := initTempGitRepo(t)
+
+	looperJSON := filepath.Join(repoDir, ".looper.json")
+	if err := os.WriteFile(looperJSON, []byte(`{"defaults":{"timeout":10}}`), 0644); err != nil {
+		t.Fatalf("write .looper.json: %v", err)
+	}
+
+	cfg, _, keys, err := loadWithRepoAt(t, repoDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Defaults.Timeout != 10 {
+		t.Errorf("timeout = %d, want 10 (minTimeout boundary should be applied)", cfg.Defaults.Timeout)
+	}
+	found := false
+	for _, k := range keys {
+		if k == "defaults.timeout" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("overlay keys = %v, want defaults.timeout to be present", keys)
+	}
+}
+
+func TestLoad_MissingFile_ReturnsDefaults_Hermetic(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Backend != defaultConfig.Backend {
+		t.Errorf("backend = %q, want %q", cfg.Backend, defaultConfig.Backend)
+	}
+	if cfg.Defaults.Cycles != defaultConfig.Defaults.Cycles {
+		t.Errorf("cycles = %d, want %d", cfg.Defaults.Cycles, defaultConfig.Defaults.Cycles)
+	}
+	if cfg.Defaults.Timeout != defaultConfig.Defaults.Timeout {
+		t.Errorf("timeout = %d, want %d", cfg.Defaults.Timeout, defaultConfig.Defaults.Timeout)
 	}
 }
 
