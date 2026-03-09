@@ -2,6 +2,7 @@ package linear
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -57,7 +58,7 @@ type Attachment struct {
 }
 
 // GetIssue fetches an issue by its identifier (e.g. "ENG-123") or UUID.
-func (c *Client) GetIssue(identifier string) (*Issue, error) {
+func (c *Client) GetIssue(ctx context.Context, identifier string) (*Issue, error) {
 	query := `
 query($id: String!) {
   issue(id: $id) {
@@ -94,7 +95,7 @@ query($id: String!) {
 		} `json:"data"`
 	}
 
-	if err := c.do(query, map[string]any{"id": identifier}, &resp); err != nil {
+	if err := c.do(ctx, query, map[string]any{"id": identifier}, &resp); err != nil {
 		return nil, err
 	}
 
@@ -120,15 +121,15 @@ query($id: String!) {
 
 // SetInProgress finds the first "started" workflow state for the issue's team
 // and updates the issue to that state.
-func (c *Client) SetInProgress(issueID, teamID string) error {
-	stateID, err := c.findStartedState(teamID)
+func (c *Client) SetInProgress(ctx context.Context, issueID, teamID string) error {
+	stateID, err := c.findStartedState(ctx, teamID)
 	if err != nil {
 		return fmt.Errorf("find In Progress state: %w", err)
 	}
-	return c.updateIssueState(issueID, stateID)
+	return c.updateIssueState(ctx, issueID, stateID)
 }
 
-func (c *Client) findStartedState(teamID string) (string, error) {
+func (c *Client) findStartedState(ctx context.Context, teamID string) (string, error) {
 	query := `
 query($teamId: ID!) {
   workflowStates(filter: { team: { id: { eq: $teamId } } }) {
@@ -146,7 +147,7 @@ query($teamId: ID!) {
 			} `json:"workflowStates"`
 		} `json:"data"`
 	}
-	if err := c.do(query, map[string]any{"teamId": teamID}, &resp); err != nil {
+	if err := c.do(ctx, query, map[string]any{"teamId": teamID}, &resp); err != nil {
 		return "", err
 	}
 	for _, s := range resp.Data.WorkflowStates.Nodes {
@@ -157,7 +158,7 @@ query($teamId: ID!) {
 	return "", fmt.Errorf("no 'started' workflow state found for team %s", teamID)
 }
 
-func (c *Client) updateIssueState(issueID, stateID string) error {
+func (c *Client) updateIssueState(ctx context.Context, issueID, stateID string) error {
 	query := `
 mutation($id: String!, $stateId: String!) {
   issueUpdate(id: $id, input: { stateId: $stateId }) {
@@ -171,7 +172,7 @@ mutation($id: String!, $stateId: String!) {
 			} `json:"issueUpdate"`
 		} `json:"data"`
 	}
-	if err := c.do(query, map[string]any{"id": issueID, "stateId": stateID}, &resp); err != nil {
+	if err := c.do(ctx, query, map[string]any{"id": issueID, "stateId": stateID}, &resp); err != nil {
 		return err
 	}
 	if !resp.Data.IssueUpdate.Success {
@@ -231,13 +232,13 @@ type graphqlError struct {
 
 // do executes a GraphQL query/mutation and unmarshals the full response into out.
 // out must be a pointer to a struct with a Data field matching the response shape.
-func (c *Client) do(query string, variables map[string]any, out any) error {
+func (c *Client) do(ctx context.Context, query string, variables map[string]any, out any) error {
 	body, err := json.Marshal(graphqlRequest{Query: query, Variables: variables})
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
