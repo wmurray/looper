@@ -13,9 +13,11 @@ import (
 	"github.com/willmurray/looper/internal/git"
 )
 
-const configDir = "looper"
-const configFile = "config.json"
-const repoConfigFile = ".looper.json"
+const (
+	configDir      = "looper"
+	configFile     = "config.json"
+	repoConfigFile = ".looper.json"
+)
 
 // minTimeout is the minimum valid timeout in seconds.
 // Values below this are treated as absent/unset in both global and repo configs.
@@ -63,7 +65,7 @@ func Load() (Config, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return defaultConfig, nil
 		}
 		return defaultConfig, err
@@ -157,12 +159,12 @@ func LoadWithRepo() (Config, string, []string, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return cfg, "", nil, nil
 		}
-		return Config{}, "", nil, fmt.Errorf("reading repo config: %w", err)
+		return Config{}, "", nil, fmt.Errorf("reading repo config %q: %w", repoPath, err)
 	}
 
 	var repoCfg Config
 	if err := json.Unmarshal(data, &repoCfg); err != nil {
-		return Config{}, "", nil, fmt.Errorf("invalid repo config %s: %w", repoPath, err)
+		return Config{}, "", nil, fmt.Errorf("invalid repo config %q: %w", repoPath, err)
 	}
 
 	merged, keys := applyRepoOverlay(cfg, repoCfg)
