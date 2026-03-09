@@ -74,7 +74,7 @@ func init() {
 func runStart(cmd *cobra.Command, args []string) error {
 	ticketID := strings.ToUpper(args[0])
 
-	cfg, err := config.Load()
+	cfg, _, _, err := config.LoadWithRepo()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
