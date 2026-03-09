@@ -148,14 +148,3 @@ func CheckoutNewBranch(name string) error {
 	return nil
 }
 
-// CommitPlan stages a single plan file and commits it with a standard message.
-func CommitPlan(planFile, ticket string) error {
-	if out, err := exec.Command("git", "add", planFile).CombinedOutput(); err != nil {
-		return fmt.Errorf("git add: %s", strings.TrimSpace(string(out)))
-	}
-	msg := fmt.Sprintf("Add %s plan file", ticket)
-	if out, err := exec.Command("git", "commit", "-m", msg, "--quiet").CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
-}
