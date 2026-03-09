@@ -314,6 +314,56 @@ func TestHasIterationWork_ScopedToCurrentBranch(t *testing.T) {
 	}
 }
 
+// --- RepoRoot ---
+
+func TestRepoRoot_InRepo(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+
+	root, err := RepoRoot()
+	if err != nil {
+		t.Fatalf("RepoRoot() error: %v", err)
+	}
+
+	// Resolve symlinks on both sides: os.TempDir() on macOS returns a path
+	// under /var/folders which is a symlink to /private/var/folders, while
+	// git rev-parse --show-toplevel returns the resolved path.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	evalCwd, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(cwd): %v", err)
+	}
+	evalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(root): %v", err)
+	}
+	if evalRoot != evalCwd {
+		t.Errorf("RepoRoot() = %q, want %q", evalRoot, evalCwd)
+	}
+}
+
+func TestRepoRoot_NotInRepo(t *testing.T) {
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Skipf("could not chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	_, err = RepoRoot()
+	if err == nil {
+		t.Fatal("RepoRoot() expected error outside a git repo, got nil")
+	}
+}
+
 // --- Checkout error path ---
 
 func TestCheckout_NonexistentBranch(t *testing.T) {
