@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -127,7 +128,9 @@ func TestPlanFromAttachment_Empty(t *testing.T) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // newTestClient returns a *Client wired to the given httptest server.
@@ -272,10 +275,10 @@ func TestSetInProgress_HappyPath(t *testing.T) {
 	t.Parallel()
 
 	// Track request count to distinguish findStartedState from updateIssueState.
-	var reqCount int
+	// atomic.Int32 avoids a data race between the handler goroutine and the test goroutine.
+	var reqCount atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reqCount++
-		switch reqCount {
+		switch reqCount.Add(1) {
 		case 1: // findStartedState
 			writeJSON(w, 200, map[string]any{
 				"data": map[string]any{
@@ -301,8 +304,8 @@ func TestSetInProgress_HappyPath(t *testing.T) {
 	if err := client.SetInProgress(context.Background(), "issue-uuid", "team-uuid"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if reqCount != 2 {
-		t.Errorf("expected 2 requests, got %d", reqCount)
+	if n := reqCount.Load(); n != 2 {
+		t.Errorf("expected 2 requests, got %d", n)
 	}
 }
 
@@ -333,10 +336,9 @@ func TestSetInProgress_NoStartedState(t *testing.T) {
 
 func TestSetInProgress_UpdateFails(t *testing.T) {
 	t.Parallel()
-	var reqCount int
+	var reqCount atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reqCount++
-		switch reqCount {
+		switch reqCount.Add(1) {
 		case 1:
 			writeJSON(w, 200, map[string]any{
 				"data": map[string]any{

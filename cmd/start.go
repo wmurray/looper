@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -61,6 +62,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("linear_api_key not set\nRun: looper settings set linear_api_key <your-key>")
 	}
 
+	// Validate ticket_pattern before hitting the network.
+	ticketRe, err := regexp.Compile(cfg.TicketPattern)
+	if err != nil {
+		return fmt.Errorf("invalid ticket_pattern %q: %w", cfg.TicketPattern, err)
+	}
+
 	// Require a clean working tree before creating a new branch.
 	if err := git.AssertRepo(); err != nil {
 		return err
@@ -86,11 +93,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	fetchSpinner.Stop()
 
-	// Validate the API-returned identifier before using it as a filename.
-	ticketRe, err := regexp.Compile(cfg.TicketPattern)
-	if err != nil {
-		return fmt.Errorf("invalid ticket_pattern %q: %w", cfg.TicketPattern, err)
-	}
+	// Validate the API-returned identifier against the configured pattern
+	// before using it as a filename.
 	if !ticketRe.MatchString(issue.Identifier) {
 		return fmt.Errorf("Linear returned unexpected identifier %q (does not match ticket_pattern %q)", issue.Identifier, cfg.TicketPattern)
 	}
@@ -195,8 +199,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	ui.Phase("Plan written: %s", planFile)
 
-	// Commit the plan file so implementLoop's AssertClean check (via runImplement)
-	// would pass if called directly — and to preserve a clean baseline.
+	// Commit the plan file to establish a clean baseline before the agent loop begins.
 	if err := git.CommitPlan(planFile, issue.Identifier); err != nil {
 		return fmt.Errorf("commit plan: %w", err)
 	}
@@ -216,10 +219,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 		missingFiles = true
 	}
 	if missingFiles && !startFlagYes {
+		// Note: branch and plan file are already committed at this point.
+		// An abort here leaves them in place; the user can delete the branch manually.
 		fmt.Printf("\nSkill files are missing. Continue anyway? [y/N] ")
-		var answer string
-		fmt.Scanln(&answer)
-		if answer != "y" && answer != "yes" {
+		scanner := bufio.NewScanner(os.Stdin)
+		if !scanner.Scan() {
+			return fmt.Errorf("aborted")
+		}
+		if answer := strings.TrimSpace(strings.ToLower(scanner.Text())); answer != "y" && answer != "yes" {
 			return fmt.Errorf("aborted")
 		}
 		fmt.Println()
