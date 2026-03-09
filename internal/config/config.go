@@ -2,15 +2,24 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/willmurray/looper/internal/git"
 )
 
 const configDir = "looper"
 const configFile = "config.json"
+const repoConfigFile = ".looper.json"
+
+// minTimeout is the minimum valid timeout in seconds.
+// Values below this are treated as absent/unset in both global and repo configs.
+const minTimeout = 10
 
 type Defaults struct {
 	Cycles  int `json:"cycles"`
@@ -72,7 +81,7 @@ func Load() (Config, error) {
 	if cfg.Defaults.Cycles == 0 {
 		cfg.Defaults.Cycles = defaultConfig.Defaults.Cycles
 	}
-	if cfg.Defaults.Timeout < 10 {
+	if cfg.Defaults.Timeout < minTimeout {
 		cfg.Defaults.Timeout = defaultConfig.Defaults.Timeout
 	}
 	if cfg.SkillPath == "" {
@@ -86,6 +95,78 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// applyRepoOverlay copies non-zero fields from src onto dst, returning the
+// updated dst and a list of dot-notation keys that were applied.
+// TrustedDirs is intentionally excluded: allowing a repo config to grant
+// itself trust would undermine the security model.
+func applyRepoOverlay(dst, src Config) (Config, []string) {
+	var keys []string
+	if src.Backend != "" {
+		dst.Backend = src.Backend
+		keys = append(keys, "backend")
+	}
+	if src.Defaults.Cycles != 0 {
+		dst.Defaults.Cycles = src.Defaults.Cycles
+		keys = append(keys, "defaults.cycles")
+	}
+	// Timeout < minTimeout is treated as absent (matches the same sentinel used in Load).
+	if src.Defaults.Timeout >= minTimeout {
+		dst.Defaults.Timeout = src.Defaults.Timeout
+		keys = append(keys, "defaults.timeout")
+	}
+	if src.SkillPath != "" {
+		dst.SkillPath = src.SkillPath
+		keys = append(keys, "skill_path")
+	}
+	if src.ReviewerAgent != "" {
+		dst.ReviewerAgent = src.ReviewerAgent
+		keys = append(keys, "reviewer_agent")
+	}
+	if src.TicketPattern != "" {
+		dst.TicketPattern = src.TicketPattern
+		keys = append(keys, "ticket_pattern")
+	}
+	if src.LinearAPIKey != "" {
+		dst.LinearAPIKey = src.LinearAPIKey
+		keys = append(keys, "linear_api_key")
+	}
+	return dst, keys
+}
+
+// LoadWithRepo loads the global config and overlays any non-zero values from
+// .looper.json at the git repo root. It returns the merged Config, the path of
+// the repo config that was applied (empty if none), the dot-notation keys that
+// were overridden, and any error.
+func LoadWithRepo() (Config, string, []string, error) {
+	cfg, err := Load()
+	if err != nil {
+		return Config{}, "", nil, err
+	}
+
+	root, err := git.RepoRoot()
+	if err != nil {
+		// Not in a git repo — no repo config to apply.
+		return cfg, "", nil, nil
+	}
+	repoPath := filepath.Join(root, repoConfigFile)
+
+	data, err := os.ReadFile(repoPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return cfg, "", nil, nil
+		}
+		return Config{}, "", nil, fmt.Errorf("reading repo config: %w", err)
+	}
+
+	var repoCfg Config
+	if err := json.Unmarshal(data, &repoCfg); err != nil {
+		return Config{}, "", nil, fmt.Errorf("invalid repo config %s: %w", repoPath, err)
+	}
+
+	merged, keys := applyRepoOverlay(cfg, repoCfg)
+	return merged, repoPath, keys, nil
 }
 
 func Save(cfg Config) error {
