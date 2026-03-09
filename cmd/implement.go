@@ -215,19 +215,18 @@ func runImplement(cmd *cobra.Command, args []string) error {
 		iterStart := time.Now()
 		totalIterations = i
 
-		pw.BeginRun(i)
+		_ = pw.BeginRun(i)
 		ui.Iteration("=== Iteration %d of %d ===", i, cycles)
 
-		// --- Build previous context ---
-		prevContext := "(First run)"
-		if i > 1 {
-			prevContext = fmt.Sprintf("(See %s for previous iteration details)", progressFile)
-		}
-
 		// --- PHASE 1: EXECUTION ---
+		// Read progress file so exec agent has full history of previous iterations.
+		execProgressBytes, err := os.ReadFile(progressFile)
+		if err != nil {
+			return fmt.Errorf("could not read progress file before iteration %d: %w", i, err)
+		}
 		execSpinner := ui.NewSpinner(fmt.Sprintf("[%s] Executing plan...", time.Now().Format("15:04:05")))
 		execSpinner.Start()
-		execResultCh := runner.RunAsync(ctx, buildExecPrompt(string(planContent), prevContext, skillPath), timeout, cfg.Backend)
+		execResultCh := runner.RunAsync(ctx, buildExecPrompt(string(planContent), string(execProgressBytes), skillPath), timeout, cfg.Backend)
 		execResult := <-execResultCh
 
 		if execResult.Cancelled {
@@ -235,45 +234,49 @@ func runImplement(cmd *cobra.Command, args []string) error {
 			fmt.Println()
 			ui.Alert("Interrupted — committing partial work")
 			git.CommitWIP(i, "execution")
-			pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+			_ = pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
 			return fmt.Errorf("interrupted")
 		}
 		execSpinner.Stop()
 
 		if execResult.TimedOut {
-			pw.WriteGuardTriggered(fmt.Sprintf("Execution timeout after %ds", timeout))
+			_ = pw.WriteGuardTriggered(fmt.Sprintf("Execution timeout after %ds", timeout))
 			ui.Alert("Execution agent timeout")
 			git.CommitWIP(i, "execution")
 			return fmt.Errorf("execution timed out at iteration %d", i)
 		}
 		if execResult.ExitCode != 0 {
-			pw.WriteGuardTriggered(fmt.Sprintf("Execution failed (exit code %d)", execResult.ExitCode))
+			_ = pw.WriteGuardTriggered(fmt.Sprintf("Execution failed (exit code %d)", execResult.ExitCode))
 			ui.Error("Execution failed (code %d)", execResult.ExitCode)
 			return fmt.Errorf("execution agent failed at iteration %d", i)
 		}
 
-		gitStatus := git.StatusShort()
 		gitDiff := git.Diff()
-		pw.WriteExecution(execResult.Output, gitStatus, gitDiff)
+		_ = pw.WriteExecution(execResult.Output)
 
 		// --- GUARD 1: No changes ---
 		g1 := guardState.CheckNoChanges(gitDiff)
 		if g1.Warning {
-			pw.WriteGuardAlert(g1.Message)
+			_ = pw.WriteGuardAlert(g1.Message)
 			ui.Warn("%s", g1.Message)
 		}
 		if g1.Triggered {
-			pw.WriteGuardTriggered(g1.Message)
+			_ = pw.WriteGuardTriggered(g1.Message)
 			ui.Alert("%s", g1.Message)
 			ui.Alert("Aborting.")
-			pw.WriteSummary("aborted — no changes", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+			_ = pw.WriteSummary("aborted — no changes", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
 			return fmt.Errorf("guard triggered: %s", g1.Message)
 		}
 
 		// --- PHASE 2: REVIEW ---
+		// Re-read progress file — now includes this iteration's execution output.
+		reviewProgressBytes, err := os.ReadFile(progressFile)
+		if err != nil {
+			return fmt.Errorf("could not read progress file before review at iteration %d: %w", i, err)
+		}
 		reviewSpinner := ui.NewSpinner(fmt.Sprintf("[%s] Reviewing...", time.Now().Format("15:04:05")))
 		reviewSpinner.Start()
-		reviewResultCh := runner.RunAsync(ctx, buildReviewPrompt(string(planContent), execResult.Output, reviewerAgent), timeout, cfg.Backend)
+		reviewResultCh := runner.RunAsync(ctx, buildReviewPrompt(string(planContent), string(reviewProgressBytes), reviewerAgent), timeout, cfg.Backend)
 		reviewResult := <-reviewResultCh
 
 		if reviewResult.Cancelled {
@@ -281,42 +284,42 @@ func runImplement(cmd *cobra.Command, args []string) error {
 			fmt.Println()
 			ui.Alert("Interrupted — committing partial work")
 			git.CommitWIP(i, "review")
-			pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+			_ = pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
 			return fmt.Errorf("interrupted")
 		}
 		reviewSpinner.Stop()
 
 		if reviewResult.TimedOut {
-			pw.WriteGuardTriggered(fmt.Sprintf("Review timeout after %ds", timeout))
+			_ = pw.WriteGuardTriggered(fmt.Sprintf("Review timeout after %ds", timeout))
 			ui.Alert("Review agent timeout")
 			git.CommitWIP(i, "review")
 			return fmt.Errorf("review timed out at iteration %d", i)
 		}
 		if reviewResult.ExitCode != 0 {
-			pw.WriteGuardTriggered(fmt.Sprintf("Review failed (exit code %d)", reviewResult.ExitCode))
+			_ = pw.WriteGuardTriggered(fmt.Sprintf("Review failed (exit code %d)", reviewResult.ExitCode))
 			ui.Error("Review failed (code %d)", reviewResult.ExitCode)
 			return fmt.Errorf("review agent failed at iteration %d", i)
 		}
 
-		pw.WriteReview(reviewResult.Output)
+		_ = pw.WriteReview(reviewResult.Output)
 
 		// --- GUARD 2: Repeated issues ---
 		g2 := guardState.CheckRepeatedIssues(reviewResult.Output)
 		if g2.Warning {
-			pw.WriteGuardAlert(g2.Message)
+			_ = pw.WriteGuardAlert(g2.Message)
 			ui.Warn("%s", g2.Message)
 		}
 		if g2.Triggered {
-			pw.WriteGuardTriggered(g2.Message)
+			_ = pw.WriteGuardTriggered(g2.Message)
 			ui.Alert("%s", g2.Message)
 			ui.Alert("Aborting.")
-			pw.WriteSummary("aborted — repeated issues", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+			_ = pw.WriteSummary("aborted — repeated issues", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
 			return fmt.Errorf("guard triggered: %s", g2.Message)
 		}
 
 		// --- GUARD 3: Iteration duration (log only) ---
 		elapsed := int64(time.Since(iterStart).Seconds())
-		pw.WriteIterationTime(elapsed)
+		_ = pw.WriteIterationTime(elapsed)
 
 		// --- COMMIT ---
 		if err := git.CommitIteration(i, execResult.Output); err != nil {
@@ -327,8 +330,8 @@ func runImplement(cmd *cobra.Command, args []string) error {
 
 		// --- CHECK FOR SUCCESS ---
 		if jobsDoneRe.MatchString(reviewResult.Output) {
-			pw.WriteSuccess(i)
-			pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+			_ = pw.WriteSuccess(i)
+			_ = pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
 			fmt.Println()
 			ui.Success("👷 Job's done - completed in %d of %d iterations", i, cycles)
 			return nil
@@ -339,7 +342,7 @@ func runImplement(cmd *cobra.Command, args []string) error {
 
 	// Max cycles reached
 	ui.Alert("Max cycles (%d) reached without approval", cycles)
-	pw.WriteSummary("max cycles reached", totalIterations, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(totalIterations))
+	_ = pw.WriteSummary("max cycles reached", totalIterations, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(totalIterations))
 
 	return fmt.Errorf("max cycles (%d) reached without completion", cycles)
 }
@@ -378,7 +381,14 @@ func confirmGitStaging(cwd string) (trusted bool, err error) {
 	}
 }
 
-func buildExecPrompt(planContent, prevContext, skillPath string) string {
+func buildExecPrompt(planContent, progressContent, skillPath string) string {
+	var historySection string
+	if strings.TrimSpace(progressContent) == "" {
+		historySection = "(First iteration — no history yet)"
+	} else {
+		historySection = "Loop history — do not regress on issues addressed in previous iterations:\n\n" + progressContent
+	}
+
 	return strings.TrimSpace(fmt.Sprintf(`Follow %s
 
 Execute this plan:
@@ -386,7 +396,6 @@ Execute this plan:
 %s
 `+"```"+`
 
-Context from previous iteration:
 %s
 
 Complete the plan using Test-Driven Development:
@@ -395,23 +404,22 @@ Complete the plan using Test-Driven Development:
 3. Refactor as needed
 4. All tests must pass before you complete
 
-Provide a concise summary of what you accomplished.`, skillPath, planContent, prevContext))
+Provide a concise summary of what you accomplished.`, skillPath, planContent, historySection))
 }
 
-func buildReviewPrompt(planContent, execOutput, reviewerAgent string) string {
-	return strings.TrimSpace(fmt.Sprintf(`Using the rails-code-reviewer subagent (%s)
+func buildReviewPrompt(planContent, progressContent, reviewerAgent string) string {
+	return strings.TrimSpace(fmt.Sprintf(`Using the code reviewer subagent (%s)
 
-Review these changes against the plan:
-
-Plan:
+Review the implementation against this plan:
 `+"```"+`
 %s
 `+"```"+`
 
-Changes made:
+The loop history below contains all iterations so far. The most recent ### Execution section is the current implementation to review.
+
 %s
 
 Provide your assessment. If the implementation looks good and meets the plan, start your response with: 👷‍♂️ Job's done!
 
-If there are issues to address, start with: 🔧 Needs work and list the issues.`, reviewerAgent, planContent, execOutput))
+If there are issues to address, start with: 🔧 Needs work and list the issues.`, reviewerAgent, planContent, progressContent))
 }
