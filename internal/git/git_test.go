@@ -1,9 +1,13 @@
 package git
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -121,5 +125,205 @@ func TestAssertRepo_NotARepo(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
 	if err := AssertRepo(); err == nil {
 		t.Fatal("expected error when not in a git repo")
+	}
+}
+
+// --- helpers for git integration tests ---
+
+// initTempRepo creates a temp dir, inits a git repo in it, chdirs into it,
+// and returns a cleanup function that restores the original working directory.
+//
+// WARNING: uses os.Chdir which mutates the process-wide working directory.
+// Do NOT call t.Parallel() in any test that uses this helper.
+func initTempRepo(t *testing.T) func() {
+	t.Helper()
+	dir := t.TempDir()
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir to temp repo: %v", err)
+	}
+
+	mustRun := func(name string, args ...string) {
+		t.Helper()
+		cmd := exec.Command(name, args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s %v: %s", name, args, out)
+		}
+	}
+	mustRun("git", "init")
+	mustRun("git", "config", "user.email", "test@example.com")
+	mustRun("git", "config", "user.name", "Test")
+
+	return func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Logf("could not restore working directory: %v", err)
+		}
+	}
+}
+
+var makeCommitCounter atomic.Int64
+
+// makeCommit creates a uniquely named file and commits it with the given message.
+// Each call writes a distinct file so successive commits don't no-op.
+// Uses an atomic counter so it is safe against future concurrent callers.
+func makeCommit(t *testing.T, message string) {
+	t.Helper()
+	n := makeCommitCounter.Add(1)
+	filename := fmt.Sprintf("file_%d.txt", n)
+	if err := os.WriteFile(filename, []byte(message), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if out, err := exec.Command("git", "add", "-A").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %s", out)
+	}
+	if out, err := exec.Command("git", "commit", "-m", message).CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %s", out)
+	}
+}
+
+// defaultBranch returns the current branch name (works across git versions).
+func defaultBranch(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("rev-parse HEAD: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// --- BranchExists ---
+
+func TestBranchExists_Exists(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	branch := defaultBranch(t)
+
+	if !BranchExists(branch) {
+		t.Errorf("BranchExists(%q) = false, want true", branch)
+	}
+}
+
+func TestBranchExists_NotExists(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+
+	if BranchExists("nonexistent-branch-xyz") {
+		t.Error("BranchExists(nonexistent) = true, want false")
+	}
+}
+
+// --- Checkout ---
+
+func TestCheckout_SwitchesBranch(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	orig := defaultBranch(t)
+
+	// create a new branch
+	if out, err := exec.Command("git", "checkout", "-b", "feature-branch").CombinedOutput(); err != nil {
+		t.Fatalf("create branch: %s", out)
+	}
+	makeCommit(t, "feature commit")
+
+	// switch back to orig
+	if out, err := exec.Command("git", "checkout", orig).CombinedOutput(); err != nil {
+		t.Fatalf("checkout orig: %s", out)
+	}
+
+	// now use Checkout to switch to feature-branch
+	if err := Checkout("feature-branch"); err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+
+	got := defaultBranch(t)
+	if got != "feature-branch" {
+		t.Errorf("after Checkout, branch = %q, want feature-branch", got)
+	}
+}
+
+// --- HasIterationWork ---
+
+func TestHasIterationWork_WithIterations(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	makeCommit(t, "Iteration 1: implement the feature")
+
+	if !HasIterationWork() {
+		t.Error("HasIterationWork() = false, want true after iteration commit")
+	}
+}
+
+func TestHasIterationWork_WithWIPCommit(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	makeCommit(t, "WIP: Iteration 2 - timeout during implement")
+
+	if !HasIterationWork() {
+		t.Error("HasIterationWork() = false, want true after WIP commit")
+	}
+}
+
+func TestHasIterationWork_WithoutIterations(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "Add plan file")
+
+	if HasIterationWork() {
+		t.Error("HasIterationWork() = true, want false with no iteration commits")
+	}
+}
+
+// TestHasIterationWork_ScopedToCurrentBranch verifies that iteration commits
+// on the base branch do not trigger HasIterationWork on a branch cut from it.
+func TestHasIterationWork_ScopedToCurrentBranch(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	// Base branch gets an iteration-matching commit (simulates a naming collision).
+	makeCommit(t, "initial commit")
+	makeCommit(t, "Iteration 1: something committed on base branch")
+	base := defaultBranch(t)
+
+	// Cut a new feature branch — no new iteration commits on it.
+	if out, err := exec.Command("git", "checkout", "-b", "feature-branch").CombinedOutput(); err != nil {
+		t.Fatalf("create branch: %s", out)
+	}
+	makeCommit(t, "Add TICKET-1 plan file")
+
+	// HasIterationWork must return false: the matching commit is on the base branch,
+	// not on this branch.
+	if HasIterationWork() {
+		t.Errorf("HasIterationWork() = true, want false (matching commit is on %q, not on current branch)", base)
+	}
+}
+
+// --- Checkout error path ---
+
+func TestCheckout_NonexistentBranch(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+
+	err := Checkout("branch-that-does-not-exist")
+	if err == nil {
+		t.Fatal("Checkout(nonexistent) returned nil, want error")
 	}
 }
