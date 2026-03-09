@@ -253,3 +253,50 @@ func TestExpandPath_NoTilde(t *testing.T) {
 		t.Errorf("ExpandPath should not modify relative path without tilde, got %q", result)
 	}
 }
+
+// --- Save ---
+
+func TestSave_FilePermissions(t *testing.T) {
+	// Redirect HOME so ConfigPath() resolves inside a temp directory,
+	// keeping the test hermetic and avoiding writes to the real config file.
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := Config{Backend: "claude", Defaults: Defaults{Cycles: 5, Timeout: 420}}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	path, err := ConfigPath()
+	if err != nil {
+		t.Fatalf("ConfigPath: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0600 {
+		t.Errorf("config file permissions = %04o, want 0600", perm)
+	}
+}
+
+func TestSet_LinearAPIKey(t *testing.T) {
+	cfg := Config{}
+	updated, err := Set(cfg, "linear_api_key", "lin_api_abc123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.LinearAPIKey != "lin_api_abc123" {
+		t.Errorf("LinearAPIKey = %q, want %q", updated.LinearAPIKey, "lin_api_abc123")
+	}
+}
+
+func TestGet_LinearAPIKey(t *testing.T) {
+	cfg := Config{LinearAPIKey: "lin_api_xyz"}
+	val, err := Get(cfg, "linear_api_key")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if val != "lin_api_xyz" {
+		t.Errorf("Get(linear_api_key) = %q, want %q", val, "lin_api_xyz")
+	}
+}
