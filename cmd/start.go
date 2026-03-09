@@ -34,7 +34,7 @@ Steps:
   2. git checkout -b <branch>
   3. Set the ticket state to In Progress
   4. Resolve the plan: decode from a looper-plan attachment, or generate via AI
-  5. Commit the plan file, then hand off to looper implement
+  5. Commit the plan file, then run the implement loop
 
 Requires linear_api_key to be set:
   looper settings set linear_api_key <your-key>`,
@@ -69,12 +69,17 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Create the interrupt context early so it covers Linear API calls,
+	// plan generation, and the implement loop.
+	ctx, cancel := signals.WithInterrupt(context.Background())
+	defer cancel()
+
 	// --- FETCH ISSUE ---
 	client := linear.New(cfg.LinearAPIKey)
 
 	fetchSpinner := ui.NewSpinner(fmt.Sprintf("Fetching %s from Linear...", ticketID))
 	fetchSpinner.Start()
-	issue, err := client.GetIssue(ticketID)
+	issue, err := client.GetIssue(ctx, ticketID)
 	if err != nil {
 		fetchSpinner.Abort()
 		return fmt.Errorf("fetch issue: %w", err)
@@ -99,13 +104,23 @@ func runStart(cmd *cobra.Command, args []string) error {
 		branchName = linear.SlugifyBranch(issue.Identifier, issue.Title)
 	}
 
+	// Resolve cycles and timeout from flags, falling back to config defaults.
+	cycles := cfg.Defaults.Cycles
+	if startFlagCycles > 0 {
+		cycles = startFlagCycles
+	}
+	timeout := cfg.Defaults.Timeout
+	if startFlagTimeout > 0 {
+		timeout = startFlagTimeout
+	}
+
 	if startFlagDryRun {
 		fmt.Printf("looper start — dry run\n\n")
 		fmt.Printf("  Ticket:   %s — %s\n", issue.Identifier, issue.Title)
 		fmt.Printf("  Branch:   %s\n", branchName)
 		fmt.Printf("  Plan:     %s_PLAN.md\n", issue.Identifier)
-		fmt.Printf("  Cycles:   %d\n", cfg.Defaults.Cycles)
-		fmt.Printf("  Timeout:  %ds\n", cfg.Defaults.Timeout)
+		fmt.Printf("  Cycles:   %d\n", cycles)
+		fmt.Printf("  Timeout:  %ds\n", timeout)
 		fmt.Printf("  Backend:  %s\n", cfg.Backend)
 		return nil
 	}
@@ -118,7 +133,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// --- SET IN PROGRESS ---
 	progressSpinner := ui.NewSpinner("Setting ticket In Progress...")
 	progressSpinner.Start()
-	if err := client.SetInProgress(issue.ID, issue.Team.ID); err != nil {
+	if err := client.SetInProgress(ctx, issue.ID, issue.Team.ID); err != nil {
 		progressSpinner.Abort()
 		// Non-fatal: warn and continue. Failing to update the ticket state
 		// should not block the implementation work.
@@ -144,9 +159,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("write plan template: %w", err)
 			}
 		} else {
-			ctx, cancel := signals.WithInterrupt(context.Background())
-			defer cancel()
-
 			genSpinner := ui.NewSpinner(fmt.Sprintf("Generating %s via %s...", planFile, cfg.Backend))
 			genSpinner.Start()
 
@@ -183,24 +195,58 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	ui.Phase("Plan written: %s", planFile)
 
-	// Commit the plan file so implement's AssertClean() passes.
+	// Commit the plan file so implementLoop's AssertClean check (via runImplement)
+	// would pass if called directly — and to preserve a clean baseline.
 	if err := git.CommitPlan(planFile, issue.Identifier); err != nil {
 		return fmt.Errorf("commit plan: %w", err)
 	}
 
+	// --- SKILL FILE WARNINGS ---
+	skillPath := config.ExpandPath(cfg.SkillPath)
+	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
+	missingFiles := false
+	if _, err := os.Stat(skillPath); err != nil {
+		ui.Warn("skill_path not found: %s", skillPath)
+		ui.Warn("Set it with: looper settings set skill_path <path>")
+		missingFiles = true
+	}
+	if _, err := os.Stat(reviewerAgent); err != nil {
+		ui.Warn("reviewer_agent not found: %s", reviewerAgent)
+		ui.Warn("Set it with: looper settings set reviewer_agent <path>")
+		missingFiles = true
+	}
+	if missingFiles && !startFlagYes {
+		fmt.Printf("\nSkill files are missing. Continue anyway? [y/N] ")
+		var answer string
+		fmt.Scanln(&answer)
+		if answer != "y" && answer != "yes" {
+			return fmt.Errorf("aborted")
+		}
+		fmt.Println()
+	}
+
+	// --- GIT STAGING CONFIRMATION ---
+	if !startFlagYes {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("could not determine working directory: %w", err)
+		}
+		if !config.IsTrusted(cfg, cwd) {
+			trusted, err := confirmGitStaging(cwd)
+			if err != nil {
+				return err
+			}
+			if trusted {
+				cfg, err = config.TrustDir(cfg, cwd)
+				if err != nil {
+					ui.Warn("Could not save trusted directory: %v", err)
+				}
+			}
+		}
+	}
+
 	fmt.Println()
 
-	// --- HAND OFF TO IMPLEMENT ---
-	// Set the package-level flag vars that runImplement reads.
-	flagPlan = planFile
-	flagYes = startFlagYes
-	if startFlagCycles > 0 {
-		flagCycles = startFlagCycles
-	}
-	if startFlagTimeout > 0 {
-		flagTimeout = startFlagTimeout
-	}
-	flagDryRun = false // already handled dry-run above
-
-	return runImplement(implementCmd, []string{})
+	// --- RUN IMPLEMENT LOOP ---
+	return implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout)
 }
