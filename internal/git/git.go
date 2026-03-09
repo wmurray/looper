@@ -139,3 +139,23 @@ func RecentCommits(n int) string {
 	out, _ := run("log", "--oneline", fmt.Sprintf("-n%d", n))
 	return out
 }
+
+// CheckoutNewBranch creates and switches to a new branch.
+func CheckoutNewBranch(name string) error {
+	if out, err := exec.Command("git", "checkout", "-b", name).CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout -b: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// CommitPlan stages a single plan file and commits it with a standard message.
+func CommitPlan(planFile, ticket string) error {
+	if out, err := exec.Command("git", "add", planFile).CombinedOutput(); err != nil {
+		return fmt.Errorf("git add: %s", strings.TrimSpace(string(out)))
+	}
+	msg := fmt.Sprintf("Add %s plan file", ticket)
+	if out, err := exec.Command("git", "commit", "-m", msg, "--quiet").CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
