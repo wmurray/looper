@@ -187,6 +187,18 @@ func runImplement(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	ctx, cancel := signals.WithInterrupt(context.Background())
+	defer cancel()
+
+	return implementLoop(ctx, cfg, ticket, planFile, cycles, timeout)
+}
+
+// implementLoop runs the implement/review agent cycle. It is called by both
+// runImplement and runStart after all preflight checks have passed.
+func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout int) error {
+	skillPath := config.ExpandPath(cfg.SkillPath)
+	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
+
 	planContent, err := os.ReadFile(planFile)
 	if err != nil {
 		return fmt.Errorf("could not read plan file: %w", err)
@@ -201,10 +213,6 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	ui.Header("Starting loop: %s", ticket)
 	ui.Header("Max cycles: %d | Timeout per iteration: %ds | Backend: %s", cycles, timeout, cfg.Backend)
 	fmt.Println()
-
-	// Signal handling: Ctrl+C cancels the context, killing any running agent subprocess.
-	ctx, cancel := signals.WithInterrupt(context.Background())
-	defer cancel()
 
 	guardState := &guards.State{}
 	totalIterations := 0
