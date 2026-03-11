@@ -91,7 +91,6 @@ func StatusShort() string {
 }
 
 // CommitIteration commits all changes for a given iteration number.
-// Every commit includes a "looper-iteration: N" trailer in the footer.
 // Gotcha: empty summary falls back to "Apply iteration changes".
 func CommitIteration(n int, summary string) error {
 	diff := Diff()
@@ -186,9 +185,6 @@ func Checkout(name string) error {
 
 // HasIterationWork reports whether the current branch has any iteration or WIP
 // commits (i.e. the implement loop has run at least once).
-//
-// Detection uses the "looper-iteration:" trailer added by CommitIteration, with
-// a fallback to the "WIP: Iteration" prefix for commits created by CommitWIP.
 func HasIterationWork() bool {
 	allRefs, _ := run("for-each-ref", "--format=%(refname:short)", "refs/heads/")
 	current, _ := run("rev-parse", "--abbrev-ref", "HEAD")
@@ -206,6 +202,8 @@ func HasIterationWork() bool {
 	if strings.TrimSpace(iterOut) != "" {
 		return true
 	}
+
+	// Why: CommitWIP doesn't add the trailer; grep its prefix as a fallback.
 
 	wipArgs := append([]string{"log", "--oneline", "--grep=^WIP: Iteration"}, exclusions...)
 	wipOut, _ := run(wipArgs...)
