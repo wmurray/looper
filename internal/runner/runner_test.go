@@ -114,6 +114,57 @@ func TestRunArgs_CancelledImmediately(t *testing.T) {
 
 // --- RunAsync ---
 
+// --- removeEnv ---
+
+func TestRemoveEnv_RemovesKey(t *testing.T) {
+	t.Parallel()
+	env := []string{"FOO=bar", "CLAUDECODE=1", "BAZ=qux"}
+	got := removeEnv(env, "CLAUDECODE")
+	for _, e := range got {
+		if strings.HasPrefix(e, "CLAUDECODE=") {
+			t.Errorf("expected CLAUDECODE to be removed, but found %q", e)
+		}
+	}
+}
+
+func TestRemoveEnv_PreservesOthers(t *testing.T) {
+	t.Parallel()
+	env := []string{"FOO=bar", "CLAUDECODE=1", "BAZ=qux"}
+	got := removeEnv(env, "CLAUDECODE")
+	want := map[string]bool{"FOO=bar": true, "BAZ=qux": true}
+	for _, e := range got {
+		if !want[e] {
+			t.Errorf("unexpected entry in result: %q", e)
+		}
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 entries, got %d: %v", len(got), got)
+	}
+}
+
+func TestRemoveEnv_KeyAbsent(t *testing.T) {
+	t.Parallel()
+	env := []string{"FOO=bar", "BAZ=qux"}
+	got := removeEnv(env, "CLAUDECODE")
+	if len(got) != len(env) {
+		t.Errorf("expected no-op when key absent, got %v", got)
+	}
+}
+
+func TestRemoveEnv_PrefixOnly(t *testing.T) {
+	t.Parallel()
+	env := []string{"CLAUDECODE_EXTRA=x", "CLAUDECODE=1"}
+	got := removeEnv(env, "CLAUDECODE")
+	for _, e := range got {
+		if e == "CLAUDECODE_EXTRA=x" {
+			return // found — correct, prefix-only should NOT be removed
+		}
+	}
+	t.Error("expected CLAUDECODE_EXTRA=x to be preserved, but it was removed")
+}
+
+// --- RunAsync ---
+
 func TestRunAsync_ReturnsChannel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-cancel so no real agent binary is needed
