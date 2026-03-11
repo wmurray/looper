@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// defaultIterationSubject is used when the agent returns an empty summary.
+const defaultIterationSubject = "Apply iteration changes"
+
 
 func run(args ...string) (string, error) {
 	out, err := exec.Command("git", args...).Output()
@@ -88,10 +91,7 @@ func StatusShort() string {
 }
 
 // CommitIteration commits all changes for a given iteration number.
-// The agent's full summary is used as the commit message: the first non-empty
-// line becomes the subject, and remaining content becomes the body. If the
-// summary is empty, the subject defaults to "Apply iteration changes".
-// No-ops if the working tree is clean.
+// Gotcha: empty summary falls back to "Apply iteration changes".
 func CommitIteration(_ int, summary string) error {
 	diff := Diff()
 	status, _ := run("status", "--porcelain")
@@ -115,10 +115,7 @@ func CommitIteration(_ int, summary string) error {
 	return nil
 }
 
-// splitSummary splits a summary string into a subject and body for use as a
-// git commit message. The subject is the first non-empty line; the body is
-// everything after it, with surrounding blank lines trimmed. If the summary is
-// empty or all whitespace, the subject defaults to "Apply iteration changes".
+// Gotcha: empty or whitespace-only summary returns "Apply iteration changes".
 func splitSummary(summary string) (subject, body string) {
 	lines := strings.Split(summary, "\n")
 	subjectIdx := -1
@@ -130,13 +127,12 @@ func splitSummary(summary string) (subject, body string) {
 		}
 	}
 	if subjectIdx == -1 {
-		return "Apply iteration changes", ""
+		return defaultIterationSubject, ""
 	}
 	body = strings.TrimSpace(strings.Join(lines[subjectIdx+1:], "\n"))
 	return subject, body
 }
 
-// firstLine returns the first non-empty line of s, trimmed.
 func firstLine(s string) string {
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
@@ -188,19 +184,11 @@ func Checkout(name string) error {
 // HasIterationWork reports whether the current branch has any iteration or WIP
 // commits (i.e. the implement loop has run at least once).
 //
-// Detection strategy: scope the log to commits unique to the current branch by
-// excluding all other local branches (git log HEAD ^branchA ^branchB ...).
-// The implement loop always writes a plan-file commit first, then at least one
-// iteration commit. Therefore:
-//   - More than one branch-unique commit → the loop ran (plan commit + iteration).
-//   - Exactly one branch-unique commit that is a WIP commit → an interrupted
-//     iteration ran (edge case: plan was committed on the base branch).
-//
-// Since iteration commits no longer use a fixed "Iteration N:" prefix, we rely
-// on commit count rather than message pattern matching. WIP commits still use
-// "WIP: Iteration N - ..." and are detected separately as a safety net.
+// Invariant: the implement loop always writes a plan commit first; >1 unique
+// commit therefore means at least one iteration ran.
+// Gotcha: iteration commits no longer carry "Iteration N:" prefix, so
+// detection uses commit count, not message matching.
 func HasIterationWork() bool {
-	// Build an exclusion list of all other local branches.
 	allRefs, _ := run("for-each-ref", "--format=%(refname:short)", "refs/heads/")
 	current, _ := run("rev-parse", "--abbrev-ref", "HEAD")
 
@@ -212,7 +200,6 @@ func HasIterationWork() bool {
 		}
 	}
 
-	// Count all commits unique to this branch.
 	countArgs := append([]string{"log", "--oneline"}, exclusions...)
 	out, _ := run(countArgs...)
 	uniqueCount := 0
@@ -222,12 +209,12 @@ func HasIterationWork() bool {
 		}
 	}
 
-	// More than one unique commit means at least one iteration ran after the plan commit.
 	if uniqueCount > 1 {
 		return true
 	}
 
-	// Also detect a lone WIP commit (interrupted run when plan was on base branch).
+	// Gotcha: if the plan was committed on the base branch, there may be only
+	// one unique commit; fall back to WIP prefix detection as a safety net.
 	wipArgs := append([]string{"log", "--oneline", "--grep=^WIP: Iteration"}, exclusions...)
 	wipOut, _ := run(wipArgs...)
 	return strings.TrimSpace(wipOut) != ""
