@@ -412,7 +412,7 @@ Complete the plan using Test-Driven Development:
 3. Refactor as needed
 4. All tests must pass before you complete
 
-Provide a concise summary of what you accomplished.`, skillPath, planContent, historySection))
+Commit your changes following the commit-changes skill at ~/.claude/skills/commit-changes/SKILL.md. Output only the commit message.`, skillPath, planContent, historySection))
 }
 
 func buildReviewPrompt(planContent, progressContent, reviewerAgent string) string {
