@@ -475,7 +475,7 @@ func TestCommitIteration_TrailerFormat(t *testing.T) {
 	}
 
 	msg := getLastCommitMessage(t)
-	// Trailer must appear after a blank line (git trailer spec).
+	// Ref: git trailer spec — trailer paragraph must be preceded by a blank line.
 	if !strings.Contains(msg, "\n\nlooper-iteration: 3") {
 		t.Errorf("trailer not preceded by blank line; full message:\n%s", msg)
 	}
@@ -504,7 +504,6 @@ func TestHasIterationWork_WithNormalIterationCommit(t *testing.T) {
 
 	makeCommit(t, "initial commit")
 	writeFile(t, "fix.txt", "fix content")
-	// CommitIteration adds the looper-iteration trailer; detection must rely on that, not message prefix.
 	if err := CommitIteration(2, "Fix the thing"); err != nil {
 		t.Fatalf("CommitIteration: %v", err)
 	}
