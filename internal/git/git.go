@@ -88,9 +88,11 @@ func StatusShort() string {
 }
 
 // CommitIteration commits all changes for a given iteration number.
-// summary is a brief description of what was done (first line used).
+// The agent's full summary is used as the commit message: the first non-empty
+// line becomes the subject, and remaining content becomes the body. If the
+// summary is empty, the subject defaults to "Apply iteration changes".
 // No-ops if the working tree is clean.
-func CommitIteration(n int, summary string) error {
+func CommitIteration(_ int, summary string) error {
 	diff := Diff()
 	status, _ := run("status", "--porcelain")
 	if strings.TrimSpace(diff) == "" && strings.TrimSpace(status) == "" {
@@ -101,18 +103,37 @@ func CommitIteration(n int, summary string) error {
 		return fmt.Errorf("git add failed: %w", err)
 	}
 
-	desc := firstLine(summary)
-	var msg string
-	if desc != "" {
-		msg = fmt.Sprintf("Iteration %d: %s", n, desc)
-	} else {
-		msg = fmt.Sprintf("Iteration %d: execution and review cycle", n)
+	subject, body := splitSummary(summary)
+	args := []string{"commit", "--quiet", "-m", subject}
+	if body != "" {
+		args = append(args, "-m", body)
 	}
 
-	if out, err := exec.Command("git", "commit", "-m", msg, "--quiet").CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit failed: %s", string(out))
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// splitSummary splits a summary string into a subject and body for use as a
+// git commit message. The subject is the first non-empty line; the body is
+// everything after it, with surrounding blank lines trimmed. If the summary is
+// empty or all whitespace, the subject defaults to "Apply iteration changes".
+func splitSummary(summary string) (subject, body string) {
+	lines := strings.Split(summary, "\n")
+	subjectIdx := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			subject = strings.TrimSpace(line)
+			subjectIdx = i
+			break
+		}
+	}
+	if subjectIdx == -1 {
+		return "Apply iteration changes", ""
+	}
+	body = strings.TrimSpace(strings.Join(lines[subjectIdx+1:], "\n"))
+	return subject, body
 }
 
 // firstLine returns the first non-empty line of s, trimmed.
@@ -139,7 +160,7 @@ func CommitWIP(iteration int, phase string) error {
 
 	msg := fmt.Sprintf("WIP: Iteration %d - timeout during %s", iteration, phase)
 	if out, err := exec.Command("git", "commit", "-m", msg).CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit failed: %s", string(out))
+		return fmt.Errorf("git commit: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -167,27 +188,49 @@ func Checkout(name string) error {
 // HasIterationWork reports whether the current branch has any iteration or WIP
 // commits (i.e. the implement loop has run at least once).
 //
-// To avoid false positives from matching commits on the base branch, only
-// commits reachable from HEAD but not from any other local branch are searched.
+// Detection strategy: scope the log to commits unique to the current branch by
+// excluding all other local branches (git log HEAD ^branchA ^branchB ...).
+// The implement loop always writes a plan-file commit first, then at least one
+// iteration commit. Therefore:
+//   - More than one branch-unique commit → the loop ran (plan commit + iteration).
+//   - Exactly one branch-unique commit that is a WIP commit → an interrupted
+//     iteration ran (edge case: plan was committed on the base branch).
+//
+// Since iteration commits no longer use a fixed "Iteration N:" prefix, we rely
+// on commit count rather than message pattern matching. WIP commits still use
+// "WIP: Iteration N - ..." and are detected separately as a safety net.
 func HasIterationWork() bool {
 	// Build an exclusion list of all other local branches.
-	// git log HEAD ^branchA ^branchB ... scopes output to this branch's unique commits.
 	allRefs, _ := run("for-each-ref", "--format=%(refname:short)", "refs/heads/")
 	current, _ := run("rev-parse", "--abbrev-ref", "HEAD")
 
-	// Multiple --grep patterns use OR semantics by default (not AND).
-	// Do not add --all-match here — we want either pattern to be a match.
-	args := []string{"log", "--oneline", "--grep=^Iteration ", "--grep=^WIP: Iteration"}
+	var exclusions []string
 	for _, b := range strings.Split(allRefs, "\n") {
 		b = strings.TrimSpace(b)
 		if b != "" && b != strings.TrimSpace(current) {
-			args = append(args, "^"+b)
+			exclusions = append(exclusions, "^"+b)
 		}
 	}
 
-	// Ignore the error: if git log fails, conservatively report no iteration work.
-	out, _ := run(args...)
-	return strings.TrimSpace(out) != ""
+	// Count all commits unique to this branch.
+	countArgs := append([]string{"log", "--oneline"}, exclusions...)
+	out, _ := run(countArgs...)
+	uniqueCount := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) != "" {
+			uniqueCount++
+		}
+	}
+
+	// More than one unique commit means at least one iteration ran after the plan commit.
+	if uniqueCount > 1 {
+		return true
+	}
+
+	// Also detect a lone WIP commit (interrupted run when plan was on base branch).
+	wipArgs := append([]string{"log", "--oneline", "--grep=^WIP: Iteration"}, exclusions...)
+	wipOut, _ := run(wipArgs...)
+	return strings.TrimSpace(wipOut) != ""
 }
 
 // CheckoutNewBranch creates and switches to a new branch.
