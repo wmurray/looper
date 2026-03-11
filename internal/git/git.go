@@ -91,8 +91,9 @@ func StatusShort() string {
 }
 
 // CommitIteration commits all changes for a given iteration number.
+// Every commit includes a "looper-iteration: N" trailer in the footer.
 // Gotcha: empty summary falls back to "Apply iteration changes".
-func CommitIteration(_ int, summary string) error {
+func CommitIteration(n int, summary string) error {
 	diff := Diff()
 	status, _ := run("status", "--porcelain")
 	if strings.TrimSpace(diff) == "" && strings.TrimSpace(status) == "" {
@@ -104,10 +105,12 @@ func CommitIteration(_ int, summary string) error {
 	}
 
 	subject, body := splitSummary(summary)
+	trailer := fmt.Sprintf("looper-iteration: %d", n)
 	args := []string{"commit", "--quiet", "-m", subject}
 	if body != "" {
 		args = append(args, "-m", body)
 	}
+	args = append(args, "-m", trailer)
 
 	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("git commit: %w\n%s", err, strings.TrimSpace(string(out)))
@@ -184,10 +187,8 @@ func Checkout(name string) error {
 // HasIterationWork reports whether the current branch has any iteration or WIP
 // commits (i.e. the implement loop has run at least once).
 //
-// Invariant: the implement loop always writes a plan commit first; >1 unique
-// commit therefore means at least one iteration ran.
-// Gotcha: iteration commits no longer carry "Iteration N:" prefix, so
-// detection uses commit count, not message matching.
+// Detection uses the "looper-iteration:" trailer added by CommitIteration, with
+// a fallback to the "WIP: Iteration" prefix for commits created by CommitWIP.
 func HasIterationWork() bool {
 	allRefs, _ := run("for-each-ref", "--format=%(refname:short)", "refs/heads/")
 	current, _ := run("rev-parse", "--abbrev-ref", "HEAD")
@@ -200,21 +201,12 @@ func HasIterationWork() bool {
 		}
 	}
 
-	countArgs := append([]string{"log", "--oneline"}, exclusions...)
-	out, _ := run(countArgs...)
-	uniqueCount := 0
-	for _, line := range strings.Split(out, "\n") {
-		if strings.TrimSpace(line) != "" {
-			uniqueCount++
-		}
-	}
-
-	if uniqueCount > 1 {
+	iterArgs := append([]string{"log", "--oneline", "--grep=looper-iteration:"}, exclusions...)
+	iterOut, _ := run(iterArgs...)
+	if strings.TrimSpace(iterOut) != "" {
 		return true
 	}
 
-	// Gotcha: if the plan was committed on the base branch, there may be only
-	// one unique commit; fall back to WIP prefix detection as a safety net.
 	wipArgs := append([]string{"log", "--oneline", "--grep=^WIP: Iteration"}, exclusions...)
 	wipOut, _ := run(wipArgs...)
 	return strings.TrimSpace(wipOut) != ""

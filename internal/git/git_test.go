@@ -260,7 +260,10 @@ func TestHasIterationWork_WithIterations(t *testing.T) {
 	defer cleanup()
 
 	makeCommit(t, "initial commit")
-	makeCommit(t, "Iteration 1: implement the feature")
+	writeFile(t, "impl.txt", "implementation")
+	if err := CommitIteration(1, "Implement the feature"); err != nil {
+		t.Fatalf("CommitIteration: %v", err)
+	}
 
 	if !HasIterationWork() {
 		t.Error("HasIterationWork() = false, want true after iteration commit")
@@ -405,8 +408,12 @@ func TestCommitIteration_SingleLineSummary(t *testing.T) {
 	}
 
 	msg := getLastCommitMessage(t)
-	if msg != "Fix Load to return zero Config" {
-		t.Errorf("commit message = %q, want %q", msg, "Fix Load to return zero Config")
+	lines := strings.Split(msg, "\n")
+	if lines[0] != "Fix Load to return zero Config" {
+		t.Errorf("subject = %q, want %q", lines[0], "Fix Load to return zero Config")
+	}
+	if !strings.Contains(msg, "looper-iteration: 1") {
+		t.Errorf("commit message missing trailer; full message:\n%s", msg)
 	}
 }
 
@@ -430,6 +437,9 @@ func TestCommitIteration_MultiLineSummary(t *testing.T) {
 	if !strings.Contains(msg, "Updated the config loader to handle edge cases.") {
 		t.Errorf("body missing expected content; full message:\n%s", msg)
 	}
+	if !strings.Contains(msg, "looper-iteration: 1") {
+		t.Errorf("commit message missing trailer; full message:\n%s", msg)
+	}
 }
 
 func TestCommitIteration_EmptySummary(t *testing.T) {
@@ -444,8 +454,30 @@ func TestCommitIteration_EmptySummary(t *testing.T) {
 	}
 
 	msg := getLastCommitMessage(t)
-	if msg != defaultIterationSubject {
-		t.Errorf("commit message = %q, want %q", msg, defaultIterationSubject)
+	lines := strings.Split(msg, "\n")
+	if lines[0] != defaultIterationSubject {
+		t.Errorf("subject = %q, want %q", lines[0], defaultIterationSubject)
+	}
+	if !strings.Contains(msg, "looper-iteration: 1") {
+		t.Errorf("commit message missing trailer; full message:\n%s", msg)
+	}
+}
+
+func TestCommitIteration_TrailerFormat(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "change")
+
+	if err := CommitIteration(3, "Do something"); err != nil {
+		t.Fatalf("CommitIteration: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	// Trailer must appear after a blank line (git trailer spec).
+	if !strings.Contains(msg, "\n\nlooper-iteration: 3") {
+		t.Errorf("trailer not preceded by blank line; full message:\n%s", msg)
 	}
 }
 
@@ -471,7 +503,11 @@ func TestHasIterationWork_WithNormalIterationCommit(t *testing.T) {
 	defer cleanup()
 
 	makeCommit(t, "initial commit")
-	makeCommit(t, "Fix the thing") // Gotcha: no "Iteration N:" prefix — detection must not rely on message pattern
+	writeFile(t, "fix.txt", "fix content")
+	// CommitIteration adds the looper-iteration trailer; detection must rely on that, not message prefix.
+	if err := CommitIteration(2, "Fix the thing"); err != nil {
+		t.Fatalf("CommitIteration: %v", err)
+	}
 
 	if !HasIterationWork() {
 		t.Error("HasIterationWork() = false, want true after a normal iteration commit")
