@@ -364,6 +364,125 @@ func TestRepoRoot_NotInRepo(t *testing.T) {
 	}
 }
 
+// --- CommitIteration ---
+
+// getLastCommitMessage returns the full commit message (subject + body) of HEAD.
+func getLastCommitMessage(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("git", "log", "--format=%B", "-n", "1").Output()
+	if err != nil {
+		t.Fatalf("git log: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// countCommits returns the number of commits on the current branch.
+func countCommits(t *testing.T) int {
+	t.Helper()
+	out, err := exec.Command("git", "rev-list", "--count", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("rev-list --count HEAD: %v", err)
+	}
+	n := 0
+	fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &n)
+	return n
+}
+
+// writeFile writes content to a file in the current directory.
+func writeFile(t *testing.T, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(name, []byte(content), 0644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
+func TestCommitIteration_SingleLineSummary(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "change")
+
+	if err := CommitIteration(1, "Fix Load to return zero Config"); err != nil {
+		t.Fatalf("CommitIteration: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	if msg != "Fix Load to return zero Config" {
+		t.Errorf("commit message = %q, want %q", msg, "Fix Load to return zero Config")
+	}
+}
+
+func TestCommitIteration_MultiLineSummary(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "change")
+
+	summary := "Fix Load to return zero Config\n\nUpdated the config loader to handle edge cases.\nAdded tests for empty input."
+	if err := CommitIteration(1, summary); err != nil {
+		t.Fatalf("CommitIteration: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	lines := strings.Split(msg, "\n")
+	if lines[0] != "Fix Load to return zero Config" {
+		t.Errorf("subject = %q, want %q", lines[0], "Fix Load to return zero Config")
+	}
+	if !strings.Contains(msg, "Updated the config loader to handle edge cases.") {
+		t.Errorf("body missing expected content; full message:\n%s", msg)
+	}
+}
+
+func TestCommitIteration_EmptySummary(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "change")
+
+	if err := CommitIteration(1, ""); err != nil {
+		t.Fatalf("CommitIteration: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	if msg != "Apply iteration changes" {
+		t.Errorf("commit message = %q, want %q", msg, "Apply iteration changes")
+	}
+}
+
+func TestCommitIteration_NoChanges(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	before := countCommits(t)
+
+	if err := CommitIteration(1, "Fix something"); err != nil {
+		t.Fatalf("CommitIteration: %v", err)
+	}
+
+	after := countCommits(t)
+	if after != before {
+		t.Errorf("commit count: got %d, want %d (no new commit expected)", after, before)
+	}
+}
+
+// TestHasIterationWork_WithNormalIterationCommit verifies that HasIterationWork
+// returns true even when iteration commits don't use the old "Iteration N:" prefix.
+func TestHasIterationWork_WithNormalIterationCommit(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	makeCommit(t, "Fix the thing") // no "Iteration N:" prefix
+
+	if !HasIterationWork() {
+		t.Error("HasIterationWork() = false, want true after a normal iteration commit")
+	}
+}
+
 // --- Checkout error path ---
 
 func TestCheckout_NonexistentBranch(t *testing.T) {
