@@ -366,7 +366,6 @@ func TestRepoRoot_NotInRepo(t *testing.T) {
 
 // --- CommitIteration ---
 
-// getLastCommitMessage returns the full commit message (subject + body) of HEAD.
 func getLastCommitMessage(t *testing.T) string {
 	t.Helper()
 	out, err := exec.Command("git", "log", "--format=%B", "-n", "1").Output()
@@ -376,7 +375,6 @@ func getLastCommitMessage(t *testing.T) string {
 	return strings.TrimSpace(string(out))
 }
 
-// countCommits returns the number of commits on the current branch.
 func countCommits(t *testing.T) int {
 	t.Helper()
 	out, err := exec.Command("git", "rev-list", "--count", "HEAD").Output()
@@ -388,7 +386,6 @@ func countCommits(t *testing.T) int {
 	return n
 }
 
-// writeFile writes content to a file in the current directory.
 func writeFile(t *testing.T, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(name, []byte(content), 0644); err != nil {
@@ -447,8 +444,8 @@ func TestCommitIteration_EmptySummary(t *testing.T) {
 	}
 
 	msg := getLastCommitMessage(t)
-	if msg != "Apply iteration changes" {
-		t.Errorf("commit message = %q, want %q", msg, "Apply iteration changes")
+	if msg != defaultIterationSubject {
+		t.Errorf("commit message = %q, want %q", msg, defaultIterationSubject)
 	}
 }
 
@@ -469,14 +466,12 @@ func TestCommitIteration_NoChanges(t *testing.T) {
 	}
 }
 
-// TestHasIterationWork_WithNormalIterationCommit verifies that HasIterationWork
-// returns true even when iteration commits don't use the old "Iteration N:" prefix.
 func TestHasIterationWork_WithNormalIterationCommit(t *testing.T) {
 	cleanup := initTempRepo(t)
 	defer cleanup()
 
 	makeCommit(t, "initial commit")
-	makeCommit(t, "Fix the thing") // no "Iteration N:" prefix
+	makeCommit(t, "Fix the thing") // Gotcha: no "Iteration N:" prefix — detection must not rely on message pattern
 
 	if !HasIterationWork() {
 		t.Error("HasIterationWork() = false, want true after a normal iteration commit")
