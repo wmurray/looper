@@ -42,9 +42,13 @@ func TestLoad_InvalidJSON_ReturnsError(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	_, err = Load()
+	cfg, err := Load()
 	if err == nil {
 		t.Fatal("expected error for invalid JSON in config file")
+	}
+	if cfg.Backend != "" || cfg.Defaults.Cycles != 0 || cfg.Defaults.Timeout != 0 {
+		t.Errorf("expected zero Config on error, got backend=%q cycles=%d timeout=%d",
+			cfg.Backend, cfg.Defaults.Cycles, cfg.Defaults.Timeout)
 	}
 }
 
@@ -554,6 +558,33 @@ func TestLoadWithRepo_TimeoutAtMinBoundary(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("overlay keys = %v, want defaults.timeout to be present", keys)
+	}
+}
+
+func TestLoad_PermissionDenied_ReturnsZeroConfig(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("cannot test permission denial as root")
+	}
+	t.Setenv("HOME", t.TempDir())
+
+	path, err := ConfigPath()
+	if err != nil {
+		t.Fatalf("ConfigPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(`{"backend":"claude"}`), 0000); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := Load()
+	if err == nil {
+		t.Fatal("expected error for permission denied")
+	}
+	if cfg.Backend != "" || cfg.Defaults.Cycles != 0 || cfg.Defaults.Timeout != 0 {
+		t.Errorf("expected zero Config on error, got backend=%q cycles=%d timeout=%d",
+			cfg.Backend, cfg.Defaults.Cycles, cfg.Defaults.Timeout)
 	}
 }
 

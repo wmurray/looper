@@ -68,12 +68,12 @@ func Load() (Config, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return defaultConfig, nil
 		}
-		return defaultConfig, err
+		return Config{}, err
 	}
 
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return defaultConfig, fmt.Errorf("invalid config file: %w", err)
+		return Config{}, fmt.Errorf("invalid config file: %w", err)
 	}
 
 	// Fill in zero values with defaults
