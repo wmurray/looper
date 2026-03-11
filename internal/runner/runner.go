@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -52,6 +54,7 @@ func runArgs(ctx context.Context, binary string, args []string, timeoutSecs int)
 	// direct child process. Any grandchild processes spawned by the agent will
 	// be orphaned. A process-group kill would be needed to clean those up.
 	cmd := exec.CommandContext(timeoutCtx, binary, args...)
+	cmd.Env = removeEnv(os.Environ(), "CLAUDECODE")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -86,6 +89,17 @@ func runArgs(ctx context.Context, binary string, args []string, timeoutSecs int)
 	}
 
 	return Result{Output: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode}
+}
+
+func removeEnv(env []string, key string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		if !strings.HasPrefix(e, prefix) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func binaryFor(backend string) string {
