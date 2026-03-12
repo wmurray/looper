@@ -12,6 +12,7 @@ var rootCmd = &cobra.Command{
 Commands:
   start       Fetch a Linear ticket, branch, plan, and implement
   implement   Run the agent loop against a plan file
+  polish      Run a post-implementation polish pass (lint + agent tidy)
   plan        Create a plan file with the correct naming scheme
   settings    View or set default configuration`,
 }
@@ -26,4 +27,5 @@ func init() {
 	rootCmd.AddCommand(planCmd)
 	rootCmd.AddCommand(settingsCmd)
 	rootCmd.AddCommand(cleanCmd)
+	rootCmd.AddCommand(polishCmd)
 }

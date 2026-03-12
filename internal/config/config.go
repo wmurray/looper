@@ -36,6 +36,8 @@ type Config struct {
 	TicketPattern string   `json:"ticket_pattern"`
 	TrustedDirs   []string `json:"trusted_dirs,omitempty"`
 	LinearAPIKey  string   `json:"linear_api_key,omitempty"`
+	PolishAgent   string   `json:"polish_agent,omitempty"`
+	PolishCmds    []string `json:"polish_cmds,omitempty"`
 }
 
 var defaultConfig = Config{
@@ -134,6 +136,14 @@ func applyRepoOverlay(dst, src Config) (Config, []string) {
 		dst.LinearAPIKey = src.LinearAPIKey
 		keys = append(keys, "linear_api_key")
 	}
+	if src.PolishAgent != "" {
+		dst.PolishAgent = src.PolishAgent
+		keys = append(keys, "polish_agent")
+	}
+	if len(src.PolishCmds) > 0 {
+		dst.PolishCmds = src.PolishCmds
+		keys = append(keys, "polish_cmds")
+	}
 	return dst, keys
 }
 
@@ -210,8 +220,12 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.TicketPattern, nil
 	case "linear_api_key":
 		return cfg.LinearAPIKey, nil
+	case "polish_agent":
+		return cfg.PolishAgent, nil
+	case "polish_cmds":
+		return strings.Join(cfg.PolishCmds, ", "), nil
 	default:
-		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key)", key)
+		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds)", key)
 	}
 }
 
@@ -246,8 +260,23 @@ func Set(cfg Config, key, value string) (Config, error) {
 		cfg.TicketPattern = value
 	case "linear_api_key":
 		cfg.LinearAPIKey = value
+	case "polish_agent":
+		cfg.PolishAgent = value
+	case "polish_cmds":
+		parts := strings.Split(value, ",")
+		var cmds []string
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				cmds = append(cmds, p)
+			}
+		}
+		if len(cmds) == 0 {
+			return cfg, fmt.Errorf("polish_cmds must contain at least one non-empty command")
+		}
+		cfg.PolishCmds = cmds
 	default:
-		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key)", key)
+		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds)", key)
 	}
 	return cfg, nil
 }

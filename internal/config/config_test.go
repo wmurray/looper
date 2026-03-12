@@ -604,6 +604,96 @@ func TestLoad_MissingFile_ReturnsDefaults_Hermetic(t *testing.T) {
 	}
 }
 
+func TestGet_PolishAgent(t *testing.T) {
+	cfg := Config{PolishAgent: "/some/polish-agent.md"}
+	val, err := Get(cfg, "polish_agent")
+	if err != nil {
+		t.Fatalf("Get(polish_agent): unexpected error: %v", err)
+	}
+	if val != "/some/polish-agent.md" {
+		t.Errorf("Get(polish_agent) = %q, want %q", val, "/some/polish-agent.md")
+	}
+}
+
+func TestGet_PolishCmds(t *testing.T) {
+	cfg := Config{PolishCmds: []string{"go fmt ./...", "go vet ./..."}}
+	val, err := Get(cfg, "polish_cmds")
+	if err != nil {
+		t.Fatalf("Get(polish_cmds): unexpected error: %v", err)
+	}
+	if val != "go fmt ./..., go vet ./..." {
+		t.Errorf("Get(polish_cmds) = %q, want %q", val, "go fmt ./..., go vet ./...")
+	}
+}
+
+func TestGet_PolishCmds_Empty(t *testing.T) {
+	cfg := Config{}
+	val, err := Get(cfg, "polish_cmds")
+	if err != nil {
+		t.Fatalf("Get(polish_cmds): unexpected error: %v", err)
+	}
+	if val != "" {
+		t.Errorf("Get(polish_cmds) on empty slice = %q, want %q", val, "")
+	}
+}
+
+func TestSet_PolishAgent(t *testing.T) {
+	cfg := Config{}
+	updated, err := Set(cfg, "polish_agent", "/my/agent.md")
+	if err != nil {
+		t.Fatalf("Set(polish_agent): unexpected error: %v", err)
+	}
+	if updated.PolishAgent != "/my/agent.md" {
+		t.Errorf("PolishAgent = %q, want %q", updated.PolishAgent, "/my/agent.md")
+	}
+}
+
+func TestSet_PolishCmds(t *testing.T) {
+	cfg := Config{}
+	updated, err := Set(cfg, "polish_cmds", "go fmt ./...,go vet ./...")
+	if err != nil {
+		t.Fatalf("Set(polish_cmds): unexpected error: %v", err)
+	}
+	if len(updated.PolishCmds) != 2 {
+		t.Fatalf("PolishCmds length = %d, want 2", len(updated.PolishCmds))
+	}
+	if updated.PolishCmds[0] != "go fmt ./..." {
+		t.Errorf("PolishCmds[0] = %q, want %q", updated.PolishCmds[0], "go fmt ./...")
+	}
+	if updated.PolishCmds[1] != "go vet ./..." {
+		t.Errorf("PolishCmds[1] = %q, want %q", updated.PolishCmds[1], "go vet ./...")
+	}
+}
+
+func TestSet_PolishCmds_EmptyRejectsBlank(t *testing.T) {
+	cfg := Config{}
+	_, err := Set(cfg, "polish_cmds", "   ,  ,  ")
+	if err == nil {
+		t.Fatal("expected error for blank-only commands in polish_cmds")
+	}
+}
+
+func TestApplyRepoOverlay_PolishFields(t *testing.T) {
+	dst := Config{}
+	src := Config{PolishAgent: "/src/agent.md", PolishCmds: []string{"go fmt ./..."}}
+	result, keys := applyRepoOverlay(dst, src)
+	if result.PolishAgent != "/src/agent.md" {
+		t.Errorf("PolishAgent = %q, want %q", result.PolishAgent, "/src/agent.md")
+	}
+	if len(result.PolishCmds) != 1 || result.PolishCmds[0] != "go fmt ./..." {
+		t.Errorf("PolishCmds = %v, want [go fmt ./...]", result.PolishCmds)
+	}
+	wantKeys := map[string]bool{"polish_agent": true, "polish_cmds": true}
+	for _, k := range keys {
+		if wantKeys[k] {
+			delete(wantKeys, k)
+		}
+	}
+	if len(wantKeys) != 0 {
+		t.Errorf("overlay keys missing: %v", wantKeys)
+	}
+}
+
 func TestLoadWithRepo_RepoConfigOverridesCycles(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repoDir := initTempGitRepo(t)

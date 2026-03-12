@@ -12,6 +12,9 @@ import (
 // defaultIterationSubject is used when the agent returns an empty summary.
 const defaultIterationSubject = "Apply iteration changes"
 
+// defaultPolishSubject is used when the polish agent returns an empty summary.
+const defaultPolishSubject = "Refactor: polish pass"
+
 
 func run(args ...string) (string, error) {
 	out, err := exec.Command("git", args...).Output()
@@ -149,6 +152,38 @@ func firstLine(s string) string {
 		}
 	}
 	return ""
+}
+
+// CommitPolish commits all changes for a polish pass.
+// Uses a "looper-polish: true" trailer (distinct from looper-iteration so history is queryable).
+// Gotcha: empty summary falls back to "Refactor: polish pass".
+func CommitPolish(subject, body string) error {
+	diff := Diff()
+	status, _ := run("status", "--porcelain")
+	if strings.TrimSpace(diff) == "" && strings.TrimSpace(status) == "" {
+		return nil
+	}
+
+	if _, err := exec.Command("git", "add", "-A").Output(); err != nil {
+		return fmt.Errorf("git add failed: %w", err)
+	}
+
+	if strings.TrimSpace(subject) == "" {
+		subject = defaultPolishSubject
+	}
+	subject = strings.TrimSpace(subject)
+	body = strings.TrimSpace(body)
+
+	args := []string{"commit", "--quiet", "-m", subject}
+	if body != "" {
+		args = append(args, "-m", body)
+	}
+	args = append(args, "-m", "looper-polish: true")
+
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit: %w\n%s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // CommitWIP commits with a WIP message (used on timeout/failure).
