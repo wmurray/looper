@@ -1,11 +1,80 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/willmurray/looper/internal/config"
 )
+
+// --- Dry-run output ---
+
+func TestBuildDryRunOutput_ContainsAgentPath(t *testing.T) {
+	t.Parallel()
+	out := buildDryRunOutput("IMP-18", "/my/agent.md", []string{"go fmt ./..."}, 300, "claude")
+	if !strings.Contains(out, "/my/agent.md") {
+		t.Errorf("dry-run output does not contain agent path; got:\n%s", out)
+	}
+}
+
+func TestBuildDryRunOutput_ContainsTicket(t *testing.T) {
+	t.Parallel()
+	out := buildDryRunOutput("IMP-18", "/my/agent.md", []string{"go fmt ./..."}, 300, "claude")
+	if !strings.Contains(out, "IMP-18") {
+		t.Errorf("dry-run output does not contain ticket; got:\n%s", out)
+	}
+}
+
+func TestBuildDryRunOutput_ContainsLintCmds(t *testing.T) {
+	t.Parallel()
+	out := buildDryRunOutput("IMP-18", "/my/agent.md", []string{"go fmt ./...", "go vet ./..."}, 300, "claude")
+	if !strings.Contains(out, "go fmt ./...") || !strings.Contains(out, "go vet ./...") {
+		t.Errorf("dry-run output does not contain lint commands; got:\n%s", out)
+	}
+}
+
+// --- No-changes idempotency guard ---
+
+func TestAgentHasChanges_NoChanges(t *testing.T) {
+	t.Parallel()
+	// empty diff + empty status + same HEAD → no changes
+	if agentHasChanges("", "", "abc123", "abc123") {
+		t.Error("expected agentHasChanges=false when diff/status empty and HEAD unchanged")
+	}
+}
+
+func TestAgentHasChanges_DiffChange(t *testing.T) {
+	t.Parallel()
+	if !agentHasChanges("diff --git a/foo", "", "abc123", "abc123") {
+		t.Error("expected agentHasChanges=true when diff is non-empty")
+	}
+}
+
+func TestAgentHasChanges_NewCommit(t *testing.T) {
+	t.Parallel()
+	if !agentHasChanges("", "", "abc123", "def456") {
+		t.Error("expected agentHasChanges=true when HEAD changed")
+	}
+}
+
+// --- Lint phase ---
+
+func TestRunLintCmds_FailurePropagates(t *testing.T) {
+	t.Parallel()
+	err := runLintCmds(context.Background(), []string{"false"}, t.TempDir())
+	if err == nil {
+		t.Error("expected error from failing lint command, got nil")
+	}
+}
+
+func TestRunLintCmds_SuccessNoError(t *testing.T) {
+	t.Parallel()
+	err := runLintCmds(context.Background(), []string{"true"}, t.TempDir())
+	if err != nil {
+		t.Errorf("expected no error from succeeding lint command, got %v", err)
+	}
+}
 
 // --- Flag registration ---
 

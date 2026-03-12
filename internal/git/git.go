@@ -112,7 +112,7 @@ func CommitIteration(n int, summary string) error {
 		return fmt.Errorf("git add failed: %w", err)
 	}
 
-	subject, body := splitSummary(summary)
+	subject, body := SplitSummary(summary)
 	trailer := fmt.Sprintf("looper-iteration: %d", n)
 	args := []string{"commit", "--quiet", "-m", subject}
 	if body != "" {
@@ -126,8 +126,10 @@ func CommitIteration(n int, summary string) error {
 	return nil
 }
 
+// SplitSummary splits a multi-line agent output into (subject, body).
+// The subject is the first non-empty line; body is the remainder.
 // Gotcha: empty or whitespace-only summary returns "Apply iteration changes".
-func splitSummary(summary string) (subject, body string) {
+func SplitSummary(summary string) (subject, body string) {
 	lines := strings.Split(summary, "\n")
 	subjectIdx := -1
 	for i, line := range lines {
@@ -142,16 +144,6 @@ func splitSummary(summary string) (subject, body string) {
 	}
 	body = strings.TrimSpace(strings.Join(lines[subjectIdx+1:], "\n"))
 	return subject, body
-}
-
-func firstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return line
-		}
-	}
-	return ""
 }
 
 // CommitPolish commits all changes for a polish pass.
