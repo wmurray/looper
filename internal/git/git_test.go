@@ -13,40 +13,40 @@ import (
 
 var defaultTicketRe = regexp.MustCompile(`[A-Z]+-[0-9]+`)
 
-// --- firstLine ---
+// --- SplitSummary ---
 
-func TestFirstLine_Normal(t *testing.T) {
-	result := firstLine("Added authentication middleware\nand updated routes")
-	if result != "Added authentication middleware" {
-		t.Errorf("got %q", result)
+func TestSplitSummary_Normal(t *testing.T) {
+	subject, _ := SplitSummary("Added authentication middleware\nand updated routes")
+	if subject != "Added authentication middleware" {
+		t.Errorf("got %q", subject)
 	}
 }
 
-func TestFirstLine_LeadingBlankLines(t *testing.T) {
-	result := firstLine("\n\n  \nActual content here")
-	if result != "Actual content here" {
-		t.Errorf("got %q", result)
+func TestSplitSummary_LeadingBlankLines(t *testing.T) {
+	subject, _ := SplitSummary("\n\n  \nActual content here")
+	if subject != "Actual content here" {
+		t.Errorf("got %q", subject)
 	}
 }
 
-func TestFirstLine_EmptyString(t *testing.T) {
-	result := firstLine("")
-	if result != "" {
-		t.Errorf("expected empty string, got %q", result)
+func TestSplitSummary_EmptyString(t *testing.T) {
+	subject, _ := SplitSummary("")
+	if subject != defaultIterationSubject {
+		t.Errorf("expected default subject, got %q", subject)
 	}
 }
 
-func TestFirstLine_WhitespaceOnly(t *testing.T) {
-	result := firstLine("   \n  \n  ")
-	if result != "" {
-		t.Errorf("expected empty string for whitespace-only input, got %q", result)
+func TestSplitSummary_WhitespaceOnly(t *testing.T) {
+	subject, _ := SplitSummary("   \n  \n  ")
+	if subject != defaultIterationSubject {
+		t.Errorf("expected default subject for whitespace-only input, got %q", subject)
 	}
 }
 
-func TestFirstLine_SingleLine(t *testing.T) {
-	result := firstLine("  trimmed  ")
-	if result != "trimmed" {
-		t.Errorf("got %q", result)
+func TestSplitSummary_SingleLine(t *testing.T) {
+	subject, _ := SplitSummary("  trimmed  ")
+	if subject != "trimmed" {
+		t.Errorf("got %q", subject)
 	}
 }
 

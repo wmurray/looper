@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -86,13 +87,25 @@ func runPolish(cmd *cobra.Command) error {
 
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	if dryRun {
-		fmt.Printf("looper polish — dry run\n\n")
-		fmt.Printf("  Ticket:         %s\n", ticket)
-		fmt.Printf("  Agent:          %s\n", agentPath)
-		fmt.Printf("  Lint commands:  %s\n", strings.Join(cfg.PolishCmds, ", "))
-		fmt.Printf("  Timeout:        %ds\n", timeoutSecs)
-		fmt.Printf("  Backend:        %s\n", cfg.Backend)
+		fmt.Fprint(cmd.OutOrStdout(), buildDryRunOutput(ticket, agentPath, cfg.PolishCmds, timeoutSecs, cfg.Backend))
 		return nil
+	}
+
+	yes, _ := cmd.Flags().GetBool("yes")
+	if !yes {
+		out := cmd.OutOrStdout()
+		fmt.Fprint(out, buildDryRunOutput(ticket, agentPath, cfg.PolishCmds, timeoutSecs, cfg.Backend))
+		fmt.Fprint(out, "\nProceed? [y/N] ")
+		scanner := bufio.NewScanner(cmd.InOrStdin())
+		if !scanner.Scan() {
+			fmt.Fprintln(out, "Aborted.")
+			return nil
+		}
+		answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+		if answer != "y" && answer != "yes" {
+			fmt.Fprintln(out, "Aborted.")
+			return nil
+		}
 	}
 
 	ctx, cancel := signals.WithInterrupt(context.Background())
@@ -103,22 +116,12 @@ func runPolish(cmd *cobra.Command) error {
 	// --- LINT PHASE ---
 	if len(cfg.PolishCmds) > 0 {
 		ui.Phase("Lint phase — running formatters/linters")
-		for _, lintCmd := range cfg.PolishCmds {
-			c := exec.CommandContext(ctx, "sh", "-c", lintCmd)
-			root, err := git.RepoRoot()
-			if err == nil {
-				c.Dir = root
-			}
-			c.Stderr = os.Stderr
-			if err := c.Run(); err != nil {
-				ui.Alert("Lint command failed: %s", lintCmd)
-				return fmt.Errorf("lint command %q failed: %w", lintCmd, err)
-			}
+		repoRoot, _ := git.RepoRoot()
+		if err := runLintCmds(ctx, cfg.PolishCmds, repoRoot); err != nil {
+			return err
 		}
 
-		diff := git.Diff()
-		status := git.StatusShort()
-		if strings.TrimSpace(diff) != "" || strings.TrimSpace(status) != "" {
+		if strings.TrimSpace(git.StatusShort()) != "" {
 			if err := git.CommitPolish("Refactor: apply linters", ""); err != nil {
 				return fmt.Errorf("lint commit failed: %w", err)
 			}
@@ -151,7 +154,9 @@ func runPolish(cmd *cobra.Command) error {
 	if result.TimedOut {
 		spinner.Abort()
 		ui.Alert("Polish agent timed out after %ds", timeoutSecs)
-		git.CommitWIP(0, "polish")
+		if err := git.CommitWIP(0, "polish"); err != nil {
+			return fmt.Errorf("wip commit failed: %w", err)
+		}
 		return fmt.Errorf("polish agent timed out")
 	}
 
@@ -172,14 +177,10 @@ func runPolish(cmd *cobra.Command) error {
 	spinner.Stop()
 
 	// Check for changes (diff or new HEAD commit from agent self-commit).
-	diffAfter := git.Diff()
-	headAfter := git.Head()
-	statusAfter := git.StatusShort()
-	if strings.TrimSpace(diffAfter) == "" && strings.TrimSpace(statusAfter) == "" && headAfter == headBefore {
+	if !agentHasChanges(git.Diff(), git.StatusShort(), headBefore, git.Head()) {
 		fmt.Println("Agent polish: nothing to change.")
 	} else {
-		subject := firstOutputLine(result.Output)
-		body := remainingOutputLines(result.Output)
+		subject, body := git.SplitSummary(result.Output)
 		if err := git.CommitPolish(subject, body); err != nil {
 			return fmt.Errorf("agent polish commit failed: %w", err)
 		}
@@ -193,6 +194,36 @@ func runPolish(cmd *cobra.Command) error {
 		fmt.Println("Polish complete — nothing to change.")
 	}
 	return nil
+}
+
+// agentHasChanges reports whether the agent produced any changes: either an
+// unstaged diff, untracked/modified files in status, or a new HEAD commit
+// (the agent may have self-committed).
+func agentHasChanges(diff, status, headBefore, headAfter string) bool {
+	return strings.TrimSpace(diff) != "" || strings.TrimSpace(status) != "" || headAfter != headBefore
+}
+
+// runLintCmds executes each command in cmds via sh -c with repoRoot as the working directory.
+// Returns an error (and prints an alert) on the first non-zero exit.
+func runLintCmds(ctx context.Context, cmds []string, repoRoot string) error {
+	for _, lintCmd := range cmds {
+		c := exec.CommandContext(ctx, "sh", "-c", lintCmd)
+		if repoRoot != "" {
+			c.Dir = repoRoot
+		}
+		c.Stderr = os.Stderr
+		if err := c.Run(); err != nil {
+			ui.Alert("Lint command failed: %s", lintCmd)
+			return fmt.Errorf("lint command %q failed: %w", lintCmd, err)
+		}
+	}
+	return nil
+}
+
+// buildDryRunOutput returns the dry-run summary string (ticket, agent, lint commands, timeout, backend).
+func buildDryRunOutput(ticket, agentPath string, cmds []string, timeout int, backend string) string {
+	return fmt.Sprintf("looper polish — dry run\n\n  Ticket:         %s\n  Agent:          %s\n  Lint commands:  %s\n  Timeout:        %ds\n  Backend:        %s\n",
+		ticket, agentPath, strings.Join(cmds, ", "), timeout, backend)
 }
 
 // resolvePolishAgent returns the effective agent path for the polish pass.
@@ -226,29 +257,3 @@ IMPORTANT CONSTRAINTS:
 Describe your changes in an imperative commit message (first line ≤ 72 chars, body optional).`, agentPath))
 }
 
-// firstOutputLine returns the first non-empty line of the agent output.
-func firstOutputLine(output string) string {
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return line
-		}
-	}
-	return ""
-}
-
-// remainingOutputLines returns everything after the first non-empty line.
-func remainingOutputLines(output string) string {
-	lines := strings.Split(output, "\n")
-	first := -1
-	for i, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			first = i
-			break
-		}
-	}
-	if first < 0 || first+1 >= len(lines) {
-		return ""
-	}
-	return strings.TrimSpace(strings.Join(lines[first+1:], "\n"))
-}
