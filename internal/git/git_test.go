@@ -535,6 +535,92 @@ func TestHead_ReturnsCommitHash(t *testing.T) {
 
 // --- Checkout error path ---
 
+// --- CommitPolish ---
+
+func TestCommitPolish_SubjectAndTrailer(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "polished")
+
+	if err := CommitPolish("Refactor: tighten comments", ""); err != nil {
+		t.Fatalf("CommitPolish: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	lines := strings.Split(msg, "\n")
+	if lines[0] != "Refactor: tighten comments" {
+		t.Errorf("subject = %q, want %q", lines[0], "Refactor: tighten comments")
+	}
+	if !strings.Contains(msg, "looper-polish: true") {
+		t.Errorf("commit message missing looper-polish trailer; full message:\n%s", msg)
+	}
+	if strings.Contains(msg, "looper-iteration:") {
+		t.Errorf("polish commit must not have looper-iteration trailer; full message:\n%s", msg)
+	}
+}
+
+func TestCommitPolish_WithBody(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "polished with body")
+
+	subject := "Refactor: apply linters"
+	body := "Ran go fmt and go vet; fixed alignment in config.go"
+	if err := CommitPolish(subject, body); err != nil {
+		t.Fatalf("CommitPolish: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	if !strings.HasPrefix(msg, subject) {
+		t.Errorf("subject = %q, want prefix %q", msg, subject)
+	}
+	if !strings.Contains(msg, body) {
+		t.Errorf("commit message missing body %q; full message:\n%s", body, msg)
+	}
+	if !strings.Contains(msg, "looper-polish: true") {
+		t.Errorf("commit message missing looper-polish trailer; full message:\n%s", msg)
+	}
+}
+
+func TestCommitPolish_EmptySummaryFallsBack(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "polish fallback")
+
+	if err := CommitPolish("", ""); err != nil {
+		t.Fatalf("CommitPolish: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	lines := strings.Split(msg, "\n")
+	if lines[0] != defaultPolishSubject {
+		t.Errorf("subject = %q, want %q", lines[0], defaultPolishSubject)
+	}
+}
+
+func TestCommitPolish_NoChanges(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	before := countCommits(t)
+
+	if err := CommitPolish("Refactor: nothing", ""); err != nil {
+		t.Fatalf("CommitPolish: %v", err)
+	}
+
+	after := countCommits(t)
+	if after != before {
+		t.Errorf("commit count: got %d, want %d (no new commit expected when no changes)", after, before)
+	}
+}
+
 func TestCheckout_NonexistentBranch(t *testing.T) {
 	cleanup := initTempRepo(t)
 	defer cleanup()
