@@ -116,7 +116,10 @@ func runPolish(cmd *cobra.Command) error {
 	// --- LINT PHASE ---
 	if len(cfg.PolishCmds) > 0 {
 		ui.Phase("Lint phase — running formatters/linters")
-		repoRoot, _ := git.RepoRoot()
+		repoRoot, err := git.RepoRoot()
+		if err != nil {
+			return err
+		}
 		if err := runLintCmds(ctx, cfg.PolishCmds, repoRoot); err != nil {
 			return err
 		}
@@ -128,7 +131,7 @@ func runPolish(cmd *cobra.Command) error {
 			ui.Success("Lint phase: committed formatter changes.")
 			commitsMade++
 		} else {
-			fmt.Println("Lint phase: nothing to format.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Lint phase: nothing to format.")
 		}
 	}
 
@@ -146,7 +149,7 @@ func runPolish(cmd *cobra.Command) error {
 
 	if result.Cancelled {
 		spinner.Abort()
-		fmt.Println()
+		fmt.Fprintln(cmd.OutOrStdout())
 		ui.Warn("Interrupted — no commit created.")
 		return nil
 	}
@@ -176,31 +179,43 @@ func runPolish(cmd *cobra.Command) error {
 
 	spinner.Stop()
 
-	// Check for changes (diff or new HEAD commit from agent self-commit).
-	if !agentHasChanges(git.Diff(), git.StatusShort(), headBefore, git.Head()) {
-		fmt.Println("Agent polish: nothing to change.")
-	} else {
+	headAfter := git.Head()
+	isSelfCommit, hasPendingChanges := agentDecision(git.Diff(), git.StatusShort(), headBefore, headAfter)
+	switch {
+	case isSelfCommit:
+		ui.Success("Agent polish: agent self-committed — %s", result.Output)
+		commitsMade++
+	case hasPendingChanges:
 		subject, body := git.SplitSummary(result.Output)
 		if err := git.CommitPolish(subject, body); err != nil {
 			return fmt.Errorf("agent polish commit failed: %w", err)
 		}
 		ui.Success("Agent polish: committed — %s", subject)
 		commitsMade++
+	default:
+		fmt.Fprintln(cmd.OutOrStdout(), "Agent polish: nothing to change.")
 	}
 
 	if commitsMade > 0 {
 		ui.Success("Polish complete — %d commit(s) made.", commitsMade)
 	} else {
-		fmt.Println("Polish complete — nothing to change.")
+		fmt.Fprintln(cmd.OutOrStdout(), "Polish complete — nothing to change.")
 	}
 	return nil
 }
 
-// agentHasChanges reports whether the agent produced any changes: either an
-// unstaged diff, untracked/modified files in status, or a new HEAD commit
-// (the agent may have self-committed).
-func agentHasChanges(diff, status, headBefore, headAfter string) bool {
-	return strings.TrimSpace(diff) != "" || strings.TrimSpace(status) != "" || headAfter != headBefore
+// agentDecision classifies what the agent did after it ran.
+// Returns (isSelfCommit, hasPendingChanges).
+//   - isSelfCommit=true means the agent advanced HEAD itself; nothing to stage.
+//   - hasPendingChanges=true means the working tree is dirty; caller must commit.
+//
+// The two flags are mutually exclusive: if the agent self-committed, the
+// working tree is expected to be clean and there is nothing left to stage.
+func agentDecision(diff, status, headBefore, headAfter string) (isSelfCommit, hasPendingChanges bool) {
+	if headAfter != headBefore {
+		return true, false
+	}
+	return false, strings.TrimSpace(diff) != "" || strings.TrimSpace(status) != ""
 }
 
 // runLintCmds executes each command in cmds via sh -c with repoRoot as the working directory.
@@ -222,8 +237,12 @@ func runLintCmds(ctx context.Context, cmds []string, repoRoot string) error {
 
 // buildDryRunOutput returns the dry-run summary string (ticket, agent, lint commands, timeout, backend).
 func buildDryRunOutput(ticket, agentPath string, cmds []string, timeout int, backend string) string {
+	displayTicket := ticket
+	if displayTicket == "" {
+		displayTicket = "(none)"
+	}
 	return fmt.Sprintf("looper polish — dry run\n\n  Ticket:         %s\n  Agent:          %s\n  Lint commands:  %s\n  Timeout:        %ds\n  Backend:        %s\n",
-		ticket, agentPath, strings.Join(cmds, ", "), timeout, backend)
+		displayTicket, agentPath, strings.Join(cmds, ", "), timeout, backend)
 }
 
 // resolvePolishAgent returns the effective agent path for the polish pass.

@@ -15,7 +15,6 @@ const defaultIterationSubject = "Apply iteration changes"
 // defaultPolishSubject is used when the polish agent returns an empty summary.
 const defaultPolishSubject = "Refactor: polish pass"
 
-
 func run(args ...string) (string, error) {
 	out, err := exec.Command("git", args...).Output()
 	return strings.TrimSpace(string(out)), err

@@ -36,25 +36,28 @@ func TestBuildDryRunOutput_ContainsLintCmds(t *testing.T) {
 
 // --- No-changes idempotency guard ---
 
-func TestAgentHasChanges_NoChanges(t *testing.T) {
+func TestAgentDecision_NoChanges_Legacy(t *testing.T) {
 	t.Parallel()
-	// empty diff + empty status + same HEAD → no changes
-	if agentHasChanges("", "", "abc123", "abc123") {
-		t.Error("expected agentHasChanges=false when diff/status empty and HEAD unchanged")
+	// empty diff + empty status + same HEAD → neither self-commit nor pending changes
+	isSelf, hasPending := agentDecision("", "", "abc123", "abc123")
+	if isSelf || hasPending {
+		t.Errorf("expected (false, false) when diff/status empty and HEAD unchanged; got (%v, %v)", isSelf, hasPending)
 	}
 }
 
-func TestAgentHasChanges_DiffChange(t *testing.T) {
+func TestAgentDecision_DiffChange_Legacy(t *testing.T) {
 	t.Parallel()
-	if !agentHasChanges("diff --git a/foo", "", "abc123", "abc123") {
-		t.Error("expected agentHasChanges=true when diff is non-empty")
+	_, hasPending := agentDecision("diff --git a/foo", "", "abc123", "abc123")
+	if !hasPending {
+		t.Error("expected hasPendingChanges=true when diff is non-empty")
 	}
 }
 
-func TestAgentHasChanges_NewCommit(t *testing.T) {
+func TestAgentDecision_NewCommit_Legacy(t *testing.T) {
 	t.Parallel()
-	if !agentHasChanges("", "", "abc123", "def456") {
-		t.Error("expected agentHasChanges=true when HEAD changed")
+	isSelf, _ := agentDecision("", "", "abc123", "def456")
+	if !isSelf {
+		t.Error("expected isSelfCommit=true when HEAD changed")
 	}
 }
 
@@ -181,5 +184,56 @@ func TestBuildPolishPrompt_InstructsCommitMessage(t *testing.T) {
 	prompt := buildPolishPrompt("/my/agent.md")
 	if !strings.Contains(prompt, "imperative commit message") {
 		t.Errorf("prompt does not instruct commit message format; prompt:\n%s", prompt)
+	}
+}
+
+// --- Dry-run empty ticket defaults to "(none)" ---
+
+func TestBuildDryRunOutput_EmptyTicketShowsNone(t *testing.T) {
+	t.Parallel()
+	out := buildDryRunOutput("", "/my/agent.md", nil, 300, "claude")
+	if !strings.Contains(out, "(none)") {
+		t.Errorf("dry-run output with empty ticket should show (none); got:\n%s", out)
+	}
+	if strings.Contains(out, "Ticket:         \n") {
+		t.Errorf("dry-run output should not have bare 'Ticket:' with no value; got:\n%s", out)
+	}
+}
+
+// --- agentDecision: self-commit vs working-tree dirty ---
+
+func TestAgentDecision_SelfCommit(t *testing.T) {
+	t.Parallel()
+	// HEAD changed → agent self-committed; working tree is clean
+	isSelfCommit, hasPendingChanges := agentDecision("", "", "abc123", "def456")
+	if !isSelfCommit {
+		t.Error("expected isSelfCommit=true when HEAD changed")
+	}
+	if hasPendingChanges {
+		t.Error("expected hasPendingChanges=false when working tree is clean")
+	}
+}
+
+func TestAgentDecision_PendingChanges(t *testing.T) {
+	t.Parallel()
+	// HEAD unchanged, dirty working tree → need to commit
+	isSelfCommit, hasPendingChanges := agentDecision("diff --git a/foo", "", "abc123", "abc123")
+	if isSelfCommit {
+		t.Error("expected isSelfCommit=false when HEAD unchanged")
+	}
+	if !hasPendingChanges {
+		t.Error("expected hasPendingChanges=true when diff is non-empty")
+	}
+}
+
+func TestAgentDecision_NoChanges(t *testing.T) {
+	t.Parallel()
+	// HEAD unchanged, clean working tree → nothing to do
+	isSelfCommit, hasPendingChanges := agentDecision("", "", "abc123", "abc123")
+	if isSelfCommit {
+		t.Error("expected isSelfCommit=false when HEAD unchanged")
+	}
+	if hasPendingChanges {
+		t.Error("expected hasPendingChanges=false when working tree is clean")
 	}
 }
