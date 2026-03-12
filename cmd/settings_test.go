@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"os/exec"
@@ -52,8 +53,9 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(out)
 }
 
-// runSettingsGetAt changes to dir and executes "settings get <key>", returning stdout.
-func runSettingsGetAt(t *testing.T, dir string, key string) string {
+// runSettingsGetAt changes to dir and executes "settings get <key>", returning stdout and error.
+// NOTE: os.Chdir is a process-wide side effect; these tests cannot run with t.Parallel().
+func runSettingsGetAt(t *testing.T, dir string, key string) (string, error) {
 	t.Helper()
 	orig, err := os.Getwd()
 	if err != nil {
@@ -64,24 +66,27 @@ func runSettingsGetAt(t *testing.T, dir string, key string) string {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	return captureStdout(t, func() {
+	var cmdErr error
+	out := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"settings", "get", key})
-		if err := rootCmd.Execute(); err != nil {
-			t.Errorf("command error: %v", err)
-		}
+		cmdErr = rootCmd.Execute()
 	})
+	return out, cmdErr
 }
 
 func TestSettingsGet_GlobalValue(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repoDir := initTempGitRepoForSettings(t)
 
-	out := runSettingsGetAt(t, repoDir, "backend")
+	out, err := runSettingsGetAt(t, repoDir, "backend")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if strings.Contains(out, "[repo]") {
 		t.Errorf("expected no [repo] annotation for global value, got %q", out)
 	}
-	if strings.TrimSpace(out) == "" {
-		t.Error("expected non-empty output for backend")
+	if strings.TrimSpace(out) != "claude" {
+		t.Errorf("expected default backend 'claude', got %q", strings.TrimSpace(out))
 	}
 }
 
@@ -94,11 +99,34 @@ func TestSettingsGet_RepoValue(t *testing.T) {
 		t.Fatalf("write .looper.json: %v", err)
 	}
 
-	out := runSettingsGetAt(t, repoDir, "backend")
+	out, err := runSettingsGetAt(t, repoDir, "backend")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !strings.Contains(out, "[repo]") {
 		t.Errorf("expected [repo] annotation for repo-overridden value, got %q", out)
 	}
 	if !strings.Contains(out, "cursor") {
 		t.Errorf("expected value 'cursor' in output, got %q", out)
+	}
+}
+
+func TestSettingsGet_UnknownKey(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repoDir := initTempGitRepoForSettings(t)
+
+	// Capture stderr to suppress Cobra's error output during the test.
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	_, err := runSettingsGetAt(t, repoDir, "nosuchkey")
+
+	w.Close()
+	os.Stderr = oldStderr
+	io.Copy(bytes.NewBuffer(nil), r) // drain
+
+	if err == nil {
+		t.Error("expected error for unknown key, got nil")
 	}
 }
