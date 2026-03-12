@@ -513,6 +513,26 @@ func TestHasIterationWork_WithNormalIterationCommit(t *testing.T) {
 	}
 }
 
+// --- Head ---
+
+func TestHead_ReturnsCommitHash(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+
+	h := Head()
+	if len(h) != 40 {
+		t.Errorf("Head() = %q, want a 40-char hex SHA", h)
+	}
+	for _, c := range h {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			t.Errorf("Head() = %q, contains non-hex character %q", h, c)
+			break
+		}
+	}
+}
+
 // --- Checkout error path ---
 
 func TestCheckout_NonexistentBranch(t *testing.T) {

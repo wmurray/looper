@@ -78,6 +78,12 @@ func InferTicketFromPlan(path string, re *regexp.Regexp) string {
 	return ""
 }
 
+// Head returns the current HEAD commit hash, or "" if not in a repo.
+func Head() string {
+	out, _ := run("rev-parse", "HEAD")
+	return out
+}
+
 // Diff returns the output of `git diff` (unstaged changes).
 func Diff() string {
 	out, _ := run("diff")

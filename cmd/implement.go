@@ -232,6 +232,7 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		if err != nil {
 			return fmt.Errorf("could not read progress file before iteration %d: %w", i, err)
 		}
+		headBefore := git.Head()
 		execSpinner := ui.NewSpinner(fmt.Sprintf("[%s] Executing plan...", time.Now().Format("15:04:05")))
 		execSpinner.Start()
 		execResultCh := runner.RunAsync(ctx, buildExecPrompt(string(planContent), string(execProgressBytes), skillPath), timeout, cfg.Backend)
@@ -263,7 +264,7 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		_ = pw.WriteExecution(execResult.Output)
 
 		// --- GUARD 1: No changes ---
-		g1 := guardState.CheckNoChanges(gitDiff)
+		g1 := guardState.CheckNoChanges(gitDiff, git.Head() != headBefore)
 		if g1.Warning {
 			_ = pw.WriteGuardAlert(g1.Message)
 			ui.Warn("%s", g1.Message)
