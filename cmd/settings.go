@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/spf13/cobra"
 	"github.com/willmurray/looper/internal/config"
@@ -58,7 +59,7 @@ var settingsGetCmd = &cobra.Command{
 	Short: "Get a configuration value",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, _, _, err := config.LoadWithRepo()
+		cfg, _, repoKeys, err := config.LoadWithRepo()
 		if err != nil {
 			return err
 		}
@@ -66,7 +67,11 @@ var settingsGetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Println(val)
+		if slices.Contains(repoKeys, args[0]) {
+			fmt.Printf("%s  [repo]\n", val)
+		} else {
+			fmt.Println(val)
+		}
 		return nil
 	},
 }
