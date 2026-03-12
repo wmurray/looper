@@ -157,7 +157,7 @@ func runPolish(cmd *cobra.Command) error {
 	if result.TimedOut {
 		spinner.Abort()
 		ui.Alert("Polish agent timed out after %ds", timeoutSecs)
-		if err := git.CommitWIP(0, "polish"); err != nil {
+		if err := git.CommitPolishWIP(); err != nil {
 			return fmt.Errorf("wip commit failed: %w", err)
 		}
 		return fmt.Errorf("polish agent timed out")

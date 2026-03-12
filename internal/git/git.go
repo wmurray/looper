@@ -177,6 +177,26 @@ func CommitPolish(subject, body string) error {
 	return nil
 }
 
+// CommitPolishWIP commits with a "WIP: polish timeout" message.
+// Uses the looper-polish: true trailer so it is queryable but does NOT
+// match HasIterationWork()'s "^WIP: Iteration" grep pattern.
+func CommitPolishWIP() error {
+	status, _ := run("status", "--porcelain")
+	if strings.TrimSpace(status) == "" {
+		return nil
+	}
+
+	if _, err := exec.Command("git", "add", "-A").Output(); err != nil {
+		return fmt.Errorf("git add failed: %w", err)
+	}
+
+	args := []string{"commit", "--quiet", "-m", "WIP: polish timeout", "-m", "looper-polish: true"}
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit: %w\n%s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // CommitWIP commits with a WIP message (used on timeout/failure).
 func CommitWIP(iteration int, phase string) error {
 	status, _ := run("status", "--porcelain")

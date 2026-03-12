@@ -632,3 +632,62 @@ func TestCheckout_NonexistentBranch(t *testing.T) {
 		t.Fatal("Checkout(nonexistent) returned nil, want error")
 	}
 }
+
+// --- CommitPolishWIP ---
+
+func TestCommitPolishWIP_MessageAndTrailer(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "wip polish content")
+
+	if err := CommitPolishWIP(); err != nil {
+		t.Fatalf("CommitPolishWIP: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	lines := strings.Split(msg, "\n")
+	if lines[0] != "WIP: polish timeout" {
+		t.Errorf("subject = %q, want %q", lines[0], "WIP: polish timeout")
+	}
+	if !strings.Contains(msg, "looper-polish: true") {
+		t.Errorf("commit message missing looper-polish trailer; full message:\n%s", msg)
+	}
+	if strings.Contains(msg, "Iteration") {
+		t.Errorf("CommitPolishWIP commit must not contain 'Iteration'; full message:\n%s", msg)
+	}
+}
+
+func TestCommitPolishWIP_NoChanges(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	before := countCommits(t)
+
+	if err := CommitPolishWIP(); err != nil {
+		t.Fatalf("CommitPolishWIP: %v", err)
+	}
+
+	after := countCommits(t)
+	if after != before {
+		t.Errorf("commit count: got %d, want %d (no new commit expected when no changes)", after, before)
+	}
+}
+
+func TestCommitPolishWIP_DoesNotTriggerHasIterationWork(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "wip polish content")
+
+	if err := CommitPolishWIP(); err != nil {
+		t.Fatalf("CommitPolishWIP: %v", err)
+	}
+
+	if HasIterationWork() {
+		t.Error("HasIterationWork() = true after CommitPolishWIP — polish WIP must not be counted as iteration work")
+	}
+}
