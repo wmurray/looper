@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// initTempGitRepoForSettings creates a temp dir with a git repo and returns its path.
 func initTempGitRepoForSettings(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -34,7 +33,6 @@ func initTempGitRepoForSettings(t *testing.T) string {
 	return dir
 }
 
-// captureStdout redirects os.Stdout to a pipe, runs fn, and returns the captured output.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -53,8 +51,7 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(out)
 }
 
-// runSettingsGetAt changes to dir and executes "settings get <key>", returning stdout and error.
-// NOTE: os.Chdir is a process-wide side effect; these tests cannot run with t.Parallel().
+// Gotcha: os.Chdir is process-wide; these tests cannot run with t.Parallel().
 func runSettingsGetAt(t *testing.T, dir string, key string) (string, error) {
 	t.Helper()
 	orig, err := os.Getwd()
@@ -115,7 +112,7 @@ func TestSettingsGet_UnknownKey(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repoDir := initTempGitRepoForSettings(t)
 
-	// Capture stderr to suppress Cobra's error output during the test.
+	// Gotcha: Cobra writes error text to os.Stderr even during tests; redirect to suppress.
 	oldStderr := os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stderr = w
