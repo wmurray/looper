@@ -22,10 +22,10 @@ type State struct {
 	PrevIssues  string
 }
 
-// CheckNoChanges fires if gitDiff is empty (no work done).
-// 2 consecutive empty diffs triggers an abort.
-func (s *State) CheckNoChanges(gitDiff string) GuardResult {
-	if strings.TrimSpace(gitDiff) != "" {
+// CheckNoChanges fires if neither the diff nor HEAD changed.
+// 2 consecutive no-work iterations triggers an abort.
+func (s *State) CheckNoChanges(gitDiff string, headChanged bool) GuardResult {
+	if strings.TrimSpace(gitDiff) != "" || headChanged {
 		s.ThrashCount = 0
 		return GuardResult{}
 	}
