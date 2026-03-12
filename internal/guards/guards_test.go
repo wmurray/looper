@@ -56,7 +56,6 @@ func TestCheckNoChanges_StrikeResetAfterChange(t *testing.T) {
 	s := &State{}
 	s.CheckNoChanges("", false) // strike 1
 	s.CheckNoChanges("real change", false)
-	// counter should be reset; next empty diff is only strike 1 again
 	result := s.CheckNoChanges("", false)
 	if result.Triggered {
 		t.Fatal("should not trigger — counter was reset")

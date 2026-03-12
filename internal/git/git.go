@@ -78,7 +78,7 @@ func InferTicketFromPlan(path string, re *regexp.Regexp) string {
 	return ""
 }
 
-// Head returns the current HEAD commit hash, or "" if not in a repo.
+// Gotcha: returns "" when not inside a git repository.
 func Head() string {
 	out, _ := run("rev-parse", "HEAD")
 	return out
