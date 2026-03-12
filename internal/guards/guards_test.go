@@ -8,7 +8,7 @@ import (
 
 func TestCheckNoChanges_NoChangeFirstTime(t *testing.T) {
 	s := &State{}
-	result := s.CheckNoChanges("")
+	result := s.CheckNoChanges("", false)
 	if result.Triggered {
 		t.Fatal("should not trigger on first empty diff")
 	}
@@ -22,8 +22,8 @@ func TestCheckNoChanges_NoChangeFirstTime(t *testing.T) {
 
 func TestCheckNoChanges_NoChangeTwice_Triggers(t *testing.T) {
 	s := &State{}
-	s.CheckNoChanges("")
-	result := s.CheckNoChanges("")
+	s.CheckNoChanges("", false)
+	result := s.CheckNoChanges("", false)
 	if !result.Triggered {
 		t.Fatal("should trigger after two consecutive empty diffs")
 	}
@@ -34,8 +34,8 @@ func TestCheckNoChanges_NoChangeTwice_Triggers(t *testing.T) {
 
 func TestCheckNoChanges_ResetsOnChange(t *testing.T) {
 	s := &State{}
-	s.CheckNoChanges("") // strike 1
-	result := s.CheckNoChanges("some diff content")
+	s.CheckNoChanges("", false) // strike 1
+	result := s.CheckNoChanges("some diff content", false)
 	if result.Triggered || result.Warning {
 		t.Fatal("should not fire when diff is non-empty")
 	}
@@ -46,7 +46,7 @@ func TestCheckNoChanges_ResetsOnChange(t *testing.T) {
 
 func TestCheckNoChanges_NoFireOnNonEmptyDiff(t *testing.T) {
 	s := &State{}
-	result := s.CheckNoChanges("diff --git a/foo.go b/foo.go\n+added line")
+	result := s.CheckNoChanges("diff --git a/foo.go b/foo.go\n+added line", false)
 	if result.Triggered || result.Warning {
 		t.Fatal("should not fire when diff has content")
 	}
@@ -54,15 +54,40 @@ func TestCheckNoChanges_NoFireOnNonEmptyDiff(t *testing.T) {
 
 func TestCheckNoChanges_StrikeResetAfterChange(t *testing.T) {
 	s := &State{}
-	s.CheckNoChanges("") // strike 1
-	s.CheckNoChanges("real change")
-	// counter should be reset; next empty diff is only strike 1 again
-	result := s.CheckNoChanges("")
+	s.CheckNoChanges("", false) // strike 1
+	s.CheckNoChanges("real change", false)
+	result := s.CheckNoChanges("", false)
 	if result.Triggered {
 		t.Fatal("should not trigger — counter was reset")
 	}
 	if !result.Warning {
 		t.Fatal("should warn on first empty diff after reset")
+	}
+}
+
+func TestCheckNoChanges_HeadChangedResetsCounter(t *testing.T) {
+	s := &State{}
+	s.CheckNoChanges("", false) // strike 1
+	result := s.CheckNoChanges("", true)
+	if result.Triggered || result.Warning {
+		t.Fatal("should not fire when HEAD changed (agent committed its own work)")
+	}
+	if s.ThrashCount != 0 {
+		t.Fatalf("ThrashCount should reset to 0 when HEAD changed, got %d", s.ThrashCount)
+	}
+}
+
+func TestCheckNoChanges_HeadUnchangedStillCounts(t *testing.T) {
+	s := &State{}
+	result := s.CheckNoChanges("", false)
+	if result.Triggered {
+		t.Fatal("should not trigger on first empty diff with no HEAD change")
+	}
+	if !result.Warning {
+		t.Fatal("should warn on first empty diff with no HEAD change")
+	}
+	if s.ThrashCount != 1 {
+		t.Fatalf("ThrashCount should be 1, got %d", s.ThrashCount)
 	}
 }
 

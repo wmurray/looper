@@ -11,8 +11,7 @@ import (
 // --- Load ---
 
 func TestLoad_MissingFile_ReturnsDefaults(t *testing.T) {
-	// Point CONFIG lookup at a nonexistent path by using a fresh temp dir
-	// We test Load() by calling it directly; it falls back to defaults on ENOENT.
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
