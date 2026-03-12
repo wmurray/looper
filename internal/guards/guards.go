@@ -22,7 +22,7 @@ type State struct {
 	PrevIssues  string
 }
 
-// CheckNoChanges fires if neither the diff nor HEAD changed (no work done).
+// CheckNoChanges fires if neither the diff nor HEAD changed.
 // 2 consecutive no-work iterations triggers an abort.
 func (s *State) CheckNoChanges(gitDiff string, headChanged bool) GuardResult {
 	if strings.TrimSpace(gitDiff) != "" || headChanged {
