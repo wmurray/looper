@@ -60,7 +60,7 @@ func (w *Writer) WriteGuardTriggered(msg string) error {
 }
 
 func (w *Writer) WriteRetry(phase string, attempt, maxRetries int, reason string) error {
-	return w.append(fmt.Sprintf("⚠ **Retry** phase=%s attempt=%d/%d reason=%s\n\n", phase, attempt, maxRetries, reason))
+	return w.append(fmt.Sprintf("⚠ **Retry**: %s phase, attempt %d of %d — %q\n\n", phase, attempt, maxRetries, reason))
 }
 
 func (w *Writer) WriteIterationTime(secs int64) error {

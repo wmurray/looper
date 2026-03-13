@@ -161,9 +161,9 @@ func TestWriteRetry_AppendsWarningLine(t *testing.T) {
 	content := readFile(t, path)
 	assertContains(t, content, "⚠")
 	assertContains(t, content, "Retry")
-	assertContains(t, content, "phase=execution")
-	assertContains(t, content, "attempt=1/3")
-	assertContains(t, content, "rate limit exceeded")
+	assertContains(t, content, "execution phase")
+	assertContains(t, content, "attempt 1 of 3")
+	assertContains(t, content, `"rate limit exceeded"`)
 }
 
 func TestWriteRetry_IncludesPhaseAndAttempt(t *testing.T) {
@@ -171,8 +171,8 @@ func TestWriteRetry_IncludesPhaseAndAttempt(t *testing.T) {
 	w.WriteHeader()
 	w.WriteRetry("review", 2, 5, "overloaded")
 	content := readFile(t, path)
-	assertContains(t, content, "phase=review")
-	assertContains(t, content, "attempt=2/5")
+	assertContains(t, content, "review phase")
+	assertContains(t, content, "attempt 2 of 5")
 }
 
 // --- WriteIterationTime ---

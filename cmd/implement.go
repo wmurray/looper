@@ -265,11 +265,11 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		var execResult runner.Result
 		if stream {
 			fmt.Fprintln(os.Stderr, phaseMsg)
-			execResult = runner.RunWithRetry(ctx, runner.RunStreamAsyncFn(os.Stdout), execPrompt, timeout, cfg.Backend, retries, "execution", pw)
+			execResult = runner.RunWithRetry(ctx, runner.RunStreamAsyncFn(os.Stdout), execPrompt, timeout, cfg.Backend, retries, "execution", pw, ui.Warn)
 		} else {
 			execSpinner = ui.NewSpinner(phaseMsg)
 			execSpinner.Start()
-			execResult = runner.RunWithRetry(ctx, runner.RunAsyncFn(), execPrompt, timeout, cfg.Backend, retries, "execution", pw)
+			execResult = runner.RunWithRetry(ctx, runner.RunAsyncFn(), execPrompt, timeout, cfg.Backend, retries, "execution", pw, ui.Warn)
 		}
 
 		if execResult.Cancelled {
@@ -325,11 +325,11 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		var reviewResult runner.Result
 		if stream {
 			fmt.Fprintln(os.Stderr, reviewMsg)
-			reviewResult = runner.RunWithRetry(ctx, runner.RunStreamAsyncFn(os.Stdout), reviewPrompt, timeout, cfg.Backend, retries, "review", pw)
+			reviewResult = runner.RunWithRetry(ctx, runner.RunStreamAsyncFn(os.Stdout), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
 		} else {
 			reviewSpinner = ui.NewSpinner(reviewMsg)
 			reviewSpinner.Start()
-			reviewResult = runner.RunWithRetry(ctx, runner.RunAsyncFn(), reviewPrompt, timeout, cfg.Backend, retries, "review", pw)
+			reviewResult = runner.RunWithRetry(ctx, runner.RunAsyncFn(), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
 		}
 
 		if reviewResult.Cancelled {

@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 )
@@ -42,14 +41,9 @@ func RunStreamAsyncFn(out io.Writer) RunFn {
 }
 
 // RunWithRetry calls fn and retries up to maxRetries times when isTransient
-// detects a transient error. pw may be nil. Non-transient failures and success
-// return immediately. Retry count resets per call.
-func RunWithRetry(ctx context.Context, fn RunFn, prompt string, timeoutSecs int, backend string, maxRetries int, phase string, pw RetryWriter) Result {
-	return runWithRetry(ctx, fn, prompt, timeoutSecs, backend, maxRetries, phase, pw)
-}
-
-// runWithRetry is the unexported implementation used by both RunWithRetry and tests.
-func runWithRetry(ctx context.Context, fn RunFn, prompt string, timeoutSecs int, backend string, maxRetries int, phase string, pw RetryWriter) Result {
+// detects a transient error. pw and warnFn may be nil. Non-transient failures
+// and success return immediately. Retry count resets per call.
+func RunWithRetry(ctx context.Context, fn RunFn, prompt string, timeoutSecs int, backend string, maxRetries int, phase string, pw RetryWriter, warnFn func(string, ...any)) Result {
 	var result Result
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		result = <-fn(ctx, prompt, timeoutSecs, backend)
@@ -64,8 +58,9 @@ func runWithRetry(ctx context.Context, fn RunFn, prompt string, timeoutSecs int,
 			if pw != nil {
 				_ = pw.WriteRetry(phase, attempt+1, maxRetries, reason)
 			}
-			fmt.Printf("\033[33m⚠ Transient error on %s (attempt %d/%d): %s — retrying\033[0m\n",
-				phase, attempt+1, maxRetries, reason)
+			if warnFn != nil {
+				warnFn("Transient error on %s (attempt %d/%d): %s — retrying", phase, attempt+1, maxRetries, reason)
+			}
 		}
 	}
 	return result

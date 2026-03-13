@@ -841,6 +841,24 @@ func TestApplyRepoOverlay_Retries(t *testing.T) {
 	}
 }
 
+// TestApplyRepoOverlay_RetriesZeroNotOverridden documents that retries: 0 in a
+// repo config cannot clear a non-zero global value. This is intentional: the
+// same > 0 sentinel used by cycles and timeout is applied here for consistency.
+// A follow-up could allow zero to mean "disable" if that use case arises.
+func TestApplyRepoOverlay_RetriesZeroNotOverridden(t *testing.T) {
+	dst := Config{Retries: 2}
+	src := Config{Retries: 0}
+	result, keys := applyRepoOverlay(dst, src)
+	if result.Retries != 2 {
+		t.Errorf("Retries = %d, want 2 (zero should not override non-zero global)", result.Retries)
+	}
+	for _, k := range keys {
+		if k == "retries" {
+			t.Errorf("overlay keys should not include 'retries' when src.Retries == 0, got %v", keys)
+		}
+	}
+}
+
 func TestGet_NotifyWebhook(t *testing.T) {
 	cfg := Config{NotifyWebhook: "https://hooks.slack.com/test"}
 	val, err := Get(cfg, "notify_webhook")
