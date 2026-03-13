@@ -757,6 +757,90 @@ func TestSet_NotifyWebhook(t *testing.T) {
 	}
 }
 
+// --- retries key ---
+
+func TestSet_Retries_Valid(t *testing.T) {
+	cfg := Config{}
+	updated, err := Set(cfg, "retries", "3")
+	if err != nil {
+		t.Fatalf("Set(retries, 3): unexpected error: %v", err)
+	}
+	if updated.Retries != 3 {
+		t.Errorf("Retries = %d, want 3", updated.Retries)
+	}
+}
+
+func TestSet_Retries_Zero(t *testing.T) {
+	cfg := Config{Retries: 2}
+	updated, err := Set(cfg, "retries", "0")
+	if err != nil {
+		t.Fatalf("Set(retries, 0): unexpected error: %v", err)
+	}
+	if updated.Retries != 0 {
+		t.Errorf("Retries = %d, want 0", updated.Retries)
+	}
+}
+
+func TestSet_Retries_Negative_ReturnsError(t *testing.T) {
+	cfg := Config{}
+	_, err := Set(cfg, "retries", "-1")
+	if err == nil {
+		t.Fatal("expected error for negative retries")
+	}
+}
+
+func TestSet_Retries_NonInt_ReturnsError(t *testing.T) {
+	cfg := Config{}
+	_, err := Set(cfg, "retries", "abc")
+	if err == nil {
+		t.Fatal("expected error for non-integer retries")
+	}
+}
+
+func TestGet_Retries(t *testing.T) {
+	cfg := Config{Retries: 3}
+	val, err := Get(cfg, "retries")
+	if err != nil {
+		t.Fatalf("Get(retries): unexpected error: %v", err)
+	}
+	if val != "3" {
+		t.Errorf("Get(retries) = %q, want %q", val, "3")
+	}
+}
+
+func TestGet_Retries_RoundTrip(t *testing.T) {
+	cfg := Config{}
+	updated, err := Set(cfg, "retries", "3")
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	val, err := Get(updated, "retries")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if val != "3" {
+		t.Errorf("round-trip: got %q, want %q", val, "3")
+	}
+}
+
+func TestApplyRepoOverlay_Retries(t *testing.T) {
+	dst := Config{}
+	src := Config{Retries: 2}
+	result, keys := applyRepoOverlay(dst, src)
+	if result.Retries != 2 {
+		t.Errorf("Retries = %d, want 2", result.Retries)
+	}
+	found := false
+	for _, k := range keys {
+		if k == "retries" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("overlay keys = %v, want retries to be present", keys)
+	}
+}
+
 func TestGet_NotifyWebhook(t *testing.T) {
 	cfg := Config{NotifyWebhook: "https://hooks.slack.com/test"}
 	val, err := Get(cfg, "notify_webhook")

@@ -33,6 +33,7 @@ type Config struct {
 	SkillPath     string   `json:"skill_path"`
 	ReviewerAgent string   `json:"reviewer_agent"`
 	TicketPattern string   `json:"ticket_pattern"`
+	Retries       int      `json:"retries,omitempty"`
 	TrustedDirs   []string `json:"trusted_dirs,omitempty"`
 	LinearAPIKey  string   `json:"linear_api_key,omitempty"`
 	PolishAgent   string   `json:"polish_agent,omitempty"`
@@ -141,6 +142,10 @@ func applyRepoOverlay(dst, src Config) (Config, []string) {
 		dst.PolishCmds = src.PolishCmds
 		keys = append(keys, "polish_cmds")
 	}
+	if src.Retries > 0 {
+		dst.Retries = src.Retries
+		keys = append(keys, "retries")
+	}
 	return dst, keys
 }
 
@@ -227,8 +232,10 @@ func Get(cfg Config, key string) (string, error) {
 		return "false", nil
 	case "notify_webhook":
 		return cfg.NotifyWebhook, nil
+	case "retries":
+		return fmt.Sprintf("%d", cfg.Retries), nil
 	default:
-		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook)", key)
+		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook, retries)", key)
 	}
 }
 
@@ -289,8 +296,14 @@ func Set(cfg Config, key, value string) (Config, error) {
 		}
 	case "notify_webhook":
 		cfg.NotifyWebhook = value
+	case "retries":
+		var n int
+		if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 0 {
+			return cfg, fmt.Errorf("retries must be a non-negative integer")
+		}
+		cfg.Retries = n
 	default:
-		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook)", key)
+		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook, retries)", key)
 	}
 	return cfg, nil
 }

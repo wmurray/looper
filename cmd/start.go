@@ -27,6 +27,7 @@ var (
 	startFlagDryRun  bool
 	startFlagNotify  bool
 	startFlagStream  bool
+	startFlagRetries int
 )
 
 type resumeState int
@@ -73,6 +74,7 @@ func init() {
 	startCmd.Flags().BoolVar(&startFlagDryRun, "dry-run", false, "Fetch and plan but don't run agents")
 	startCmd.Flags().BoolVar(&startFlagNotify, "notify", false, "Send desktop notification when loop completes or aborts")
 	startCmd.Flags().BoolVar(&startFlagStream, "stream", false, "Stream agent output to the terminal (suppresses spinner)")
+	startCmd.Flags().IntVar(&startFlagRetries, "retries", -1, "max retries per phase on transient errors (0 = no retries; default from config)")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -136,6 +138,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if startFlagTimeout > 0 {
 		timeout = startFlagTimeout
 	}
+	retries := cfg.Retries
+	if startFlagRetries >= 0 {
+		retries = startFlagRetries
+	}
 
 	if startFlagDryRun {
 		fmt.Printf("looper start — dry run\n\n")
@@ -185,7 +191,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 			}
 			ui.Phase("Resuming implement loop for %s", issue.Identifier)
 			fmt.Println()
-			loopErr := implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, startFlagStream)
+			loopErr := implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, retries, startFlagStream)
 			doNotify := cfg.Notify || startFlagNotify
 			notifyTitle := "Looper — " + issue.Identifier
 			if loopErr != nil {
@@ -309,7 +315,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	loopErr := implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, startFlagStream)
+	loopErr := implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, retries, startFlagStream)
 	doNotify := cfg.Notify || startFlagNotify
 	notifyTitle := "Looper — " + issue.Identifier
 	if loopErr != nil {
