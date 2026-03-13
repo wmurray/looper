@@ -31,7 +31,9 @@ Valid keys:
   ticket_pattern      Regex for inferring ticket ID from branch name (default: [A-Z]+-[0-9]+)
   linear_api_key      Linear personal API key (used by looper start)
   polish_agent        Path to polish agent file (falls back to reviewer_agent if unset)
-  polish_cmds         Comma-separated lint/format commands run before the polish agent`,
+  polish_cmds         Comma-separated lint/format commands run before the polish agent
+  notify              Send desktop notification on loop completion or abort (true/false)
+  notify_webhook      Slack webhook URL to POST notification to`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, repoConfigPath, repoKeys, err := config.LoadWithRepo()
 		if err != nil {
