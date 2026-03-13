@@ -28,6 +28,7 @@ var (
 	flagDryRun   bool
 	flagYes      bool
 	flagReviewer string
+	flagStream   bool
 )
 
 // Safety guarantees:
@@ -63,6 +64,7 @@ func init() {
 	implementCmd.Flags().IntVar(&flagTimeout, "timeout", 0, "Timeout per iteration in seconds (default from config)")
 	implementCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Resolve config and print, but don't run agents")
 	implementCmd.Flags().BoolVarP(&flagYes, "yes", "y", false, "Skip git staging confirmation prompt")
+	implementCmd.Flags().BoolVar(&flagStream, "stream", false, "Stream agent output to the terminal (suppresses spinner)")
 }
 
 func runImplement(cmd *cobra.Command, args []string) error {
@@ -71,7 +73,6 @@ func runImplement(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Apply flag overrides
 	cycles := cfg.Defaults.Cycles
 	if flagCycles > 0 {
 		cycles = flagCycles
@@ -82,7 +83,6 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	}
 	planFile := flagPlan
 
-	// Git validation
 	if err := git.AssertRepo(); err != nil {
 		return err
 	}
@@ -90,13 +90,11 @@ func runImplement(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Compile ticket pattern
 	ticketRe, err := regexp.Compile(cfg.TicketPattern)
 	if err != nil {
 		return fmt.Errorf("invalid ticket_pattern %q: %w", cfg.TicketPattern, err)
 	}
 
-	// Ticket inference
 	ticket := git.InferTicketFromBranch(ticketRe)
 	if ticket == "" && planFile != "" {
 		ticket = git.InferTicketFromPlan(planFile, ticketRe)
@@ -108,7 +106,6 @@ func runImplement(cmd *cobra.Command, args []string) error {
 		ticket = "UNKNOWN"
 	}
 
-	// Plan file resolution
 	if planFile == "" {
 		candidates := []string{
 			ticket + "_PLAN.md",
@@ -152,7 +149,7 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	skillPath := config.ExpandPath(cfg.SkillPath)
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
 
-	// Warn if skill files are missing — the loop will run but agent quality will be degraded.
+	// Why: warnings are non-fatal; the loop runs regardless, but missing files degrade agent quality.
 	missingFiles := warnIfPathMissing("skill_path", skillPath) || warnIfPathMissing("reviewer_agent", reviewerAgent)
 
 	cwd, err := os.Getwd()
@@ -173,7 +170,6 @@ func runImplement(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
-	// Git staging confirmation
 	if !flagDryRun && !flagYes {
 		if !config.IsTrusted(cfg, cwd) {
 			trusted, err := confirmGitStaging(cwd)
@@ -189,7 +185,6 @@ func runImplement(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Dry run
 	if flagDryRun {
 		fmt.Printf("looper implement — dry run\n\n")
 		fmt.Printf("  Ticket:         %s\n", ticket)
@@ -205,12 +200,12 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signals.WithInterrupt(context.Background())
 	defer cancel()
 
-	return implementLoop(ctx, cfg, ticket, planFile, cycles, timeout)
+	return implementLoop(ctx, cfg, ticket, planFile, cycles, timeout, flagStream)
 }
 
 // implementLoop runs the implement/review agent cycle. It is called by both
 // runImplement and runStart after all preflight checks have passed.
-func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout int) error {
+func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout int, stream bool) error {
 	skillPath := config.ExpandPath(cfg.SkillPath)
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
 
@@ -241,27 +236,38 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		_ = pw.BeginRun(i)
 		ui.Iteration("=== Iteration %d of %d ===", i, cycles)
 
-		// --- PHASE 1: EXECUTION ---
-		// Read progress file so exec agent has full history of previous iterations.
+		// Why: exec agent needs the full iteration history to avoid regressions.
 		execProgressBytes, err := os.ReadFile(progressFile)
 		if err != nil {
 			return fmt.Errorf("could not read progress file before iteration %d: %w", i, err)
 		}
 		headBefore := git.Head()
-		execSpinner := ui.NewSpinner(fmt.Sprintf("[%s] Executing plan...", time.Now().Format("15:04:05")))
-		execSpinner.Start()
-		execResultCh := runner.RunAsync(ctx, buildExecPrompt(string(planContent), string(execProgressBytes), skillPath), timeout, cfg.Backend)
+		phaseMsg := fmt.Sprintf("[%s] Executing plan...", time.Now().Format("15:04:05"))
+		var execResultCh <-chan runner.Result
+		var execSpinner *ui.Spinner
+		if stream {
+			fmt.Fprintln(os.Stderr, phaseMsg)
+			execResultCh = runner.RunStreamAsync(ctx, buildExecPrompt(string(planContent), string(execProgressBytes), skillPath), timeout, cfg.Backend, os.Stdout)
+		} else {
+			execSpinner = ui.NewSpinner(phaseMsg)
+			execSpinner.Start()
+			execResultCh = runner.RunAsync(ctx, buildExecPrompt(string(planContent), string(execProgressBytes), skillPath), timeout, cfg.Backend)
+		}
 		execResult := <-execResultCh
 
 		if execResult.Cancelled {
-			execSpinner.Abort()
+			if execSpinner != nil {
+				execSpinner.Abort()
+			}
 			fmt.Println()
 			ui.Alert("Interrupted — committing partial work")
 			git.CommitWIP(i, "execution")
 			_ = pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
 			return fmt.Errorf("interrupted")
 		}
-		execSpinner.Stop()
+		if execSpinner != nil {
+			execSpinner.Stop()
+		}
 
 		if execResult.TimedOut {
 			_ = pw.WriteGuardTriggered(fmt.Sprintf("Execution timeout after %ds", timeout))
@@ -278,7 +284,6 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		gitDiff := git.Diff()
 		_ = pw.WriteExecution(execResult.Output)
 
-		// --- GUARD 1: No changes ---
 		g1 := guardState.CheckNoChanges(gitDiff, git.Head() != headBefore)
 		if g1.Warning {
 			_ = pw.WriteGuardAlert(g1.Message)
@@ -292,26 +297,37 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 			return fmt.Errorf("guard triggered: %s", g1.Message)
 		}
 
-		// --- PHASE 2: REVIEW ---
-		// Re-read progress file — now includes this iteration's execution output.
+		// Why: re-read after execution so the reviewer sees the latest output.
 		reviewProgressBytes, err := os.ReadFile(progressFile)
 		if err != nil {
 			return fmt.Errorf("could not read progress file before review at iteration %d: %w", i, err)
 		}
-		reviewSpinner := ui.NewSpinner(fmt.Sprintf("[%s] Reviewing...", time.Now().Format("15:04:05")))
-		reviewSpinner.Start()
-		reviewResultCh := runner.RunAsync(ctx, buildReviewPrompt(string(planContent), string(reviewProgressBytes), reviewerAgent), timeout, cfg.Backend)
+		reviewMsg := fmt.Sprintf("[%s] Reviewing...", time.Now().Format("15:04:05"))
+		var reviewResultCh <-chan runner.Result
+		var reviewSpinner *ui.Spinner
+		if stream {
+			fmt.Fprintln(os.Stderr, reviewMsg)
+			reviewResultCh = runner.RunStreamAsync(ctx, buildReviewPrompt(string(planContent), string(reviewProgressBytes), reviewerAgent), timeout, cfg.Backend, os.Stdout)
+		} else {
+			reviewSpinner = ui.NewSpinner(reviewMsg)
+			reviewSpinner.Start()
+			reviewResultCh = runner.RunAsync(ctx, buildReviewPrompt(string(planContent), string(reviewProgressBytes), reviewerAgent), timeout, cfg.Backend)
+		}
 		reviewResult := <-reviewResultCh
 
 		if reviewResult.Cancelled {
-			reviewSpinner.Abort()
+			if reviewSpinner != nil {
+				reviewSpinner.Abort()
+			}
 			fmt.Println()
 			ui.Alert("Interrupted — committing partial work")
 			git.CommitWIP(i, "review")
 			_ = pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
 			return fmt.Errorf("interrupted")
 		}
-		reviewSpinner.Stop()
+		if reviewSpinner != nil {
+			reviewSpinner.Stop()
+		}
 
 		if reviewResult.TimedOut {
 			_ = pw.WriteGuardTriggered(fmt.Sprintf("Review timeout after %ds", timeout))
@@ -327,7 +343,6 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 
 		_ = pw.WriteReview(reviewResult.Output)
 
-		// --- GUARD 2: Repeated issues ---
 		g2 := guardState.CheckRepeatedIssues(reviewResult.Output)
 		if g2.Warning {
 			_ = pw.WriteGuardAlert(g2.Message)
@@ -341,18 +356,15 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 			return fmt.Errorf("guard triggered: %s", g2.Message)
 		}
 
-		// --- GUARD 3: Iteration duration (log only) ---
 		elapsed := int64(time.Since(iterStart).Seconds())
 		_ = pw.WriteIterationTime(elapsed)
 
-		// --- COMMIT ---
 		if err := git.CommitIteration(i, execResult.Output); err != nil {
 			ui.Alert("Commit failed: %v", err)
 		} else {
 			ui.Phase("[%s] Committed iteration %d", time.Now().Format("15:04:05"), i)
 		}
 
-		// --- CHECK FOR SUCCESS ---
 		if jobsDoneRe.MatchString(reviewResult.Output) {
 			_ = pw.WriteSuccess(i)
 			_ = pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
@@ -364,7 +376,6 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		fmt.Println()
 	}
 
-	// Max cycles reached
 	ui.Alert("Max cycles (%d) reached without approval", cycles)
 	_ = pw.WriteSummary("max cycles reached", totalIterations, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(totalIterations))
 
