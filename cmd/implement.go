@@ -131,17 +131,14 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
 
 	// Warn if skill files are missing — the loop will run but agent quality will be degraded.
-	missingFiles := false
-	if _, err := os.Stat(skillPath); err != nil {
-		ui.Warn("skill_path not found: %s", skillPath)
-		ui.Warn("Set it with: looper settings set skill_path <path>")
-		missingFiles = true
+	missingFiles := warnIfPathMissing("skill_path", skillPath) || warnIfPathMissing("reviewer_agent", reviewerAgent)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("could not determine working directory: %w", err)
 	}
-	if _, err := os.Stat(reviewerAgent); err != nil {
-		ui.Warn("reviewer_agent not found: %s", reviewerAgent)
-		ui.Warn("Set it with: looper settings set reviewer_agent <path>")
-		missingFiles = true
-	}
+	warnOnStackMismatch(cwd, filepath.Base(reviewerAgent))
+
 	if missingFiles && !flagYes {
 		fmt.Printf("\nSkill files are missing. Continue anyway? [y/N] ")
 		scanner := bufio.NewScanner(os.Stdin)
@@ -156,10 +153,6 @@ func runImplement(cmd *cobra.Command, args []string) error {
 
 	// Git staging confirmation
 	if !flagDryRun && !flagYes {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("could not determine working directory: %w", err)
-		}
 		if !config.IsTrusted(cfg, cwd) {
 			trusted, err := confirmGitStaging(cwd)
 			if err != nil {
