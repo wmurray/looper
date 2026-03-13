@@ -194,7 +194,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 			}
 			ui.Phase("Resuming implement loop for %s", issue.Identifier)
 			fmt.Println()
-			return implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout)
+			return implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, false)
 		case resumePlanExists:
 			// Plan written but loop never started — skip generation.
 			ui.Phase("Plan already exists: %s", planFile)
@@ -319,5 +319,5 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	// --- RUN IMPLEMENT LOOP ---
-	return implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout)
+	return implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, false)
 }

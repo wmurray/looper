@@ -163,6 +163,50 @@ func TestRemoveEnv_PrefixOnly(t *testing.T) {
 	t.Error("expected CLAUDECODE_EXTRA=x to be preserved, but it was removed")
 }
 
+// --- runArgsStream ---
+
+func TestRunArgsStream_TeesOutput(t *testing.T) {
+	ctx := context.Background()
+	var tee strings.Builder
+	result := runArgsStream(ctx, "echo", []string{"hello"}, 5, &tee)
+	if result.ExitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d", result.ExitCode)
+	}
+	if !strings.Contains(result.Output, "hello") {
+		t.Errorf("Result.Output should contain 'hello', got %q", result.Output)
+	}
+	if !strings.Contains(tee.String(), "hello") {
+		t.Errorf("tee writer should contain 'hello', got %q", tee.String())
+	}
+}
+
+func TestRunArgsStream_OutputMatchesRunArgs(t *testing.T) {
+	ctx := context.Background()
+	var tee strings.Builder
+	streamResult := runArgsStream(ctx, "echo", []string{"world"}, 5, &tee)
+	plainResult := runArgs(ctx, "echo", []string{"world"}, 5)
+	if streamResult.Output != plainResult.Output {
+		t.Errorf("runArgsStream Output %q != runArgs Output %q", streamResult.Output, plainResult.Output)
+	}
+}
+
+// --- RunStreamAsync ---
+
+func TestRunStreamAsync_ReturnsChannel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel so no real agent binary is needed
+	var tee strings.Builder
+	ch := RunStreamAsync(ctx, "irrelevant", 5, "cursor", &tee)
+	select {
+	case result := <-ch:
+		if !result.Cancelled {
+			t.Errorf("expected Cancelled result for pre-cancelled context, got %+v", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunStreamAsync did not deliver result within timeout")
+	}
+}
+
 // --- RunAsync ---
 
 func TestRunAsync_ReturnsChannel(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -89,6 +90,62 @@ func runArgs(ctx context.Context, binary string, args []string, timeoutSecs int)
 	}
 
 	return Result{Output: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode}
+}
+
+// runArgsStream is like runArgs but tees stdout to out as it arrives.
+// Result.Output is still fully populated from the in-memory buffer.
+func runArgsStream(ctx context.Context, binary string, args []string, timeoutSecs int, out io.Writer) Result {
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(timeoutCtx, binary, args...)
+	cmd.Env = removeEnv(os.Environ(), "CLAUDECODE")
+
+	var stdout bytes.Buffer
+	cmd.Stdout = io.MultiWriter(&stdout, out)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	exitCode := 0
+	if err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return Result{Output: stdout.String(), Stderr: stderr.String(), ExitCode: 130, Cancelled: true}
+		}
+		if errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			return Result{Output: stdout.String(), Stderr: stderr.String(), ExitCode: 124, TimedOut: true}
+		}
+
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return Result{
+				Output:   stdout.String(),
+				Stderr:   stderr.String(),
+				Err:      fmt.Errorf("error running %s: %w", binary, err),
+				ExitCode: 1,
+			}
+		}
+	}
+
+	return Result{Output: stdout.String(), Stderr: stderr.String(), ExitCode: exitCode}
+}
+
+// RunStreamAsync is like RunAsync but tees agent stdout to out as it arrives.
+// Result.Output is still fully populated. Use this when --stream is set.
+func RunStreamAsync(ctx context.Context, prompt string, timeoutSecs int, backend string, out io.Writer) <-chan Result {
+	ch := make(chan Result, 1)
+	go func() {
+		binary := binaryFor(backend)
+		args := []string{"-p", prompt, "--output-format", "text"}
+		if backend == backendClaude {
+			args = append(args, "--dangerously-skip-permissions")
+		}
+		ch <- runArgsStream(ctx, binary, args, timeoutSecs, out)
+	}()
+	return ch
 }
 
 func removeEnv(env []string, key string) []string {
