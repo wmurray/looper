@@ -8,24 +8,21 @@ import (
 	"strings"
 )
 
-// GuardResult describes the outcome of a guard check.
 type GuardResult struct {
-	// Triggered means the guard threshold was crossed — abort the loop.
+	// Why: signals the caller to abort the loop; threshold was crossed.
 	Triggered bool
-	// Warning means the guard fired but hasn't reached the abort threshold yet.
+	// Why: signals the caller to warn but continue; threshold not yet reached.
 	Warning bool
 	Message string
 }
 
-// State tracks running guard counters across loop iterations.
 type State struct {
 	ThrashCount   int
 	StuckCount    int
 	PrevIssueHash string
 }
 
-// CheckNoChanges fires if neither the diff nor HEAD changed.
-// 2 consecutive no-work iterations triggers an abort.
+// Gotcha: triggers after 2 consecutive no-work iterations, not 1.
 func (s *State) CheckNoChanges(gitDiff string, headChanged bool) GuardResult {
 	if strings.TrimSpace(gitDiff) != "" || headChanged {
 		s.ThrashCount = 0
@@ -47,7 +44,7 @@ func (s *State) CheckNoChanges(gitDiff string, headChanged bool) GuardResult {
 
 var sentenceSplitter = regexp.MustCompile(`[.!?]+(?:\s+|$)`)
 
-// extractSentences splits text into normalized, deduplicated sentences.
+// Gotcha: filters sentences shorter than 8 chars to avoid matching trivial words.
 func extractSentences(text string) []string {
 	parts := sentenceSplitter.Split(text, -1)
 	seen := map[string]bool{}
@@ -64,7 +61,7 @@ func extractSentences(text string) []string {
 	return result
 }
 
-// hashSentences returns a stable, order-independent fingerprint of a sentence set.
+// Invariant: output is order-independent — sentences are sorted before hashing.
 func hashSentences(sentences []string) string {
 	digests := make([]string, len(sentences))
 	for i, s := range sentences {
@@ -75,8 +72,7 @@ func hashSentences(sentences []string) string {
 	return strings.Join(digests, ",")
 }
 
-// CheckRepeatedIssues fires if the exact same sentences recur across consecutive reviews.
-// 2 consecutive matches triggers an abort.
+// Gotcha: triggers after 2 consecutive reviews with identical sentence fingerprints, not 1.
 func (s *State) CheckRepeatedIssues(reviewOutput string) GuardResult {
 	sentences := extractSentences(reviewOutput)
 
