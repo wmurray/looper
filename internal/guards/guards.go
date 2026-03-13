@@ -1,29 +1,28 @@
 package guards
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"sort"
 	"strings"
 )
 
-// GuardResult describes the outcome of a guard check.
 type GuardResult struct {
-	// Triggered means the guard threshold was crossed — abort the loop.
+	// Why: signals the caller to abort the loop; threshold was crossed.
 	Triggered bool
-	// Warning means the guard fired but hasn't reached the abort threshold yet.
+	// Why: signals the caller to warn but continue; threshold not yet reached.
 	Warning bool
 	Message string
 }
 
-// State tracks running guard counters across loop iterations.
 type State struct {
-	ThrashCount int
-	StuckCount  int
-	PrevIssues  string
+	ThrashCount   int
+	StuckCount    int
+	PrevIssueHash string
 }
 
-// CheckNoChanges fires if neither the diff nor HEAD changed.
-// 2 consecutive no-work iterations triggers an abort.
+// Gotcha: triggers after 2 consecutive no-work iterations, not 1.
 func (s *State) CheckNoChanges(gitDiff string, headChanged bool) GuardResult {
 	if strings.TrimSpace(gitDiff) != "" || headChanged {
 		s.ThrashCount = 0
@@ -43,46 +42,63 @@ func (s *State) CheckNoChanges(gitDiff string, headChanged bool) GuardResult {
 	}
 }
 
-var issueKeywords = regexp.MustCompile(`(?i)\b(TODO|FIXME|bug|issue|error|fail|undefined|nil)\b`)
+var sentenceSplitter = regexp.MustCompile(`[.!?]+(?:\s+|$)`)
 
-// CheckRepeatedIssues fires if the same issue keywords appear in consecutive reviews.
-// 2 consecutive matches triggers an abort.
-func (s *State) CheckRepeatedIssues(reviewOutput string) GuardResult {
-	matches := issueKeywords.FindAllString(reviewOutput, -1)
-
-	// Normalize: lowercase + deduplicate + sort
+// Gotcha: filters sentences shorter than 8 chars to avoid matching trivial words.
+func extractSentences(text string) []string {
+	parts := sentenceSplitter.Split(text, -1)
 	seen := map[string]bool{}
-	for _, m := range matches {
-		seen[strings.ToLower(m)] = true
+	result := []string{}
+	for _, p := range parts {
+		s := strings.ToLower(strings.TrimSpace(p))
+		if len(s) < 8 || seen[s] {
+			continue
+		}
+		seen[s] = true
+		result = append(result, s)
 	}
-	keys := make([]string, 0, len(seen))
-	for k := range seen {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	current := strings.Join(keys, ",")
+	sort.Strings(result)
+	return result
+}
 
-	if current == "" {
+// Invariant: output is order-independent — sentences are sorted before hashing.
+func hashSentences(sentences []string) string {
+	digests := make([]string, len(sentences))
+	for i, s := range sentences {
+		sum := sha256.Sum256([]byte(s))
+		digests[i] = hex.EncodeToString(sum[:])
+	}
+	sort.Strings(digests)
+	return strings.Join(digests, ",")
+}
+
+// Gotcha: triggers after 2 consecutive reviews with identical sentence fingerprints, not 1.
+func (s *State) CheckRepeatedIssues(reviewOutput string) GuardResult {
+	sentences := extractSentences(reviewOutput)
+
+	if len(sentences) == 0 {
 		s.StuckCount = 0
-		s.PrevIssues = ""
+		s.PrevIssueHash = ""
 		return GuardResult{}
 	}
 
-	if s.PrevIssues != "" && current == s.PrevIssues {
+	current := hashSentences(sentences)
+
+	if s.PrevIssueHash != "" && current == s.PrevIssueHash {
 		s.StuckCount++
 		if s.StuckCount >= 2 {
 			return GuardResult{
 				Triggered: true,
-				Message:   "Same issues repeated in 2 consecutive reviews: " + current,
+				Message:   "Same issues repeated in 2 consecutive reviews",
 			}
 		}
 		return GuardResult{
 			Warning: true,
-			Message: "Same issues appearing again (1/2 before abort): " + current,
+			Message: "Same issues appearing again (1/2 before abort)",
 		}
 	}
 
 	s.StuckCount = 0
-	s.PrevIssues = current
+	s.PrevIssueHash = current
 	return GuardResult{}
 }
