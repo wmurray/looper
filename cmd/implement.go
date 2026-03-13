@@ -128,7 +128,6 @@ func runImplement(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("plan file not found: %s", planFile)
 	}
 
-	// Plan validation: fail fast on empty or placeholder content
 	planBytes, err := os.ReadFile(planFile)
 	if err != nil {
 		return fmt.Errorf("could not read plan file: %w", err)

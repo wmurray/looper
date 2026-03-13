@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// ValidationError represents a single plan validation issue.
 type ValidationError struct {
 	Section string
 	Message string
@@ -14,14 +13,13 @@ type ValidationError struct {
 
 var htmlCommentRe = regexp.MustCompile(`<!--.*?-->`)
 
-// sectionContent extracts the content of a markdown section (between its heading
-// and the next same-or-higher-level heading) and strips HTML comments.
+// Gotcha: stops at the next # or ## heading, not just the same level.
 func sectionContent(content, heading string) (string, bool) {
 	lines := strings.Split(content, "\n")
 	var inSection bool
 	var buf []string
-	headingPrefix := heading + " " // e.g. "## Objective "
-	headingMarker := heading        // bare match too
+	headingPrefix := heading + " "
+	headingMarker := heading
 
 	for _, line := range lines {
 		if strings.HasPrefix(line, headingPrefix) || line == headingMarker || strings.HasPrefix(line, heading+"\r") {
@@ -29,7 +27,6 @@ func sectionContent(content, heading string) (string, bool) {
 			continue
 		}
 		if inSection {
-			// Stop at next ## heading
 			if strings.HasPrefix(line, "## ") || strings.HasPrefix(line, "# ") {
 				break
 			}
@@ -44,12 +41,10 @@ func sectionContent(content, heading string) (string, bool) {
 	return strings.TrimSpace(stripped), true
 }
 
-// Validate checks the plan content for missing or placeholder sections.
-// It returns a slice of ValidationErrors; Fatal=true errors should abort the loop.
+// Why: Fatal=true errors should abort the loop; non-fatal ones are warnings only.
 func Validate(content string) []ValidationError {
 	var errs []ValidationError
 
-	// Rule 1: ## Objective must be present and non-empty
 	objContent, objFound := sectionContent(content, "## Objective")
 	if !objFound || objContent == "" {
 		errs = append(errs, ValidationError{
@@ -59,7 +54,6 @@ func Validate(content string) []ValidationError {
 		})
 	}
 
-	// Rule 3: ## Implementation Steps must have at least one numbered step with text
 	stepsContent, stepsFound := sectionContent(content, "## Implementation Steps")
 	numberedStepWithTextRe := regexp.MustCompile(`(?m)^\d+\.[ \t]+\S`)
 	hasNumberedStep := stepsFound && numberedStepWithTextRe.MatchString(stepsContent)
@@ -71,7 +65,6 @@ func Validate(content string) []ValidationError {
 		})
 	}
 
-	// Rule 2: ## Acceptance Criteria must have at least one - [ ] item with text
 	acContent, acFound := sectionContent(content, "## Acceptance Criteria")
 	checkboxWithTextRe := regexp.MustCompile(`(?m)^- \[ \][ \t]+\S`)
 	hasCheckbox := acFound && checkboxWithTextRe.MatchString(acContent)
@@ -83,14 +76,11 @@ func Validate(content string) []ValidationError {
 		})
 	}
 
-	// Rule 4: warn (non-fatal) on any section whose raw content is only placeholder lines
-	// (HTML comments, bare "- ", bare "1." with no trailing text)
 	errs = append(errs, warnPlaceholderSections(content)...)
 
 	return errs
 }
 
-// knownSections are the headings we scan for placeholder warnings.
 var knownSections = []string{
 	"## Objective",
 	"## Context",
@@ -105,8 +95,7 @@ var (
 	placeholderLineRe = regexp.MustCompile(`(?m)^<!--.*?-->$`)
 )
 
-// isOnlyPlaceholders returns true if the raw section content (before stripping
-// HTML comments) consists only of HTML comment lines, bare "- " lines, or bare "1." lines.
+// Gotcha: operates on raw (un-stripped) content; HTML comment lines count as placeholders.
 func isOnlyPlaceholders(raw string) bool {
 	lines := strings.Split(strings.TrimSpace(raw), "\n")
 	if len(lines) == 0 {
@@ -127,7 +116,7 @@ func isOnlyPlaceholders(raw string) bool {
 	return true
 }
 
-// rawSectionContent extracts the raw (un-stripped) content of a section.
+// Why: returns raw content (with HTML comments) so isOnlyPlaceholders can classify them.
 func rawSectionContent(content, heading string) (string, bool) {
 	lines := strings.Split(content, "\n")
 	var inSection bool
