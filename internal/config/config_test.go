@@ -694,6 +694,80 @@ func TestApplyRepoOverlay_PolishFields(t *testing.T) {
 	}
 }
 
+func TestSet_Notify_True(t *testing.T) {
+	cfg := Config{}
+	updated, err := Set(cfg, "notify", "true")
+	if err != nil {
+		t.Fatalf("Set(notify, true): unexpected error: %v", err)
+	}
+	if !updated.Notify {
+		t.Error("expected Notify = true")
+	}
+}
+
+func TestSet_Notify_False(t *testing.T) {
+	cfg := Config{Notify: true}
+	updated, err := Set(cfg, "notify", "false")
+	if err != nil {
+		t.Fatalf("Set(notify, false): unexpected error: %v", err)
+	}
+	if updated.Notify {
+		t.Error("expected Notify = false")
+	}
+}
+
+func TestSet_Notify_Invalid(t *testing.T) {
+	cfg := Config{}
+	_, err := Set(cfg, "notify", "yes")
+	if err == nil {
+		t.Fatal("expected error for invalid notify value")
+	}
+}
+
+func TestGet_Notify_True(t *testing.T) {
+	cfg := Config{Notify: true}
+	val, err := Get(cfg, "notify")
+	if err != nil {
+		t.Fatalf("Get(notify): unexpected error: %v", err)
+	}
+	if val != "true" {
+		t.Errorf("Get(notify) = %q, want %q", val, "true")
+	}
+}
+
+func TestGet_Notify_False(t *testing.T) {
+	cfg := Config{Notify: false}
+	val, err := Get(cfg, "notify")
+	if err != nil {
+		t.Fatalf("Get(notify): unexpected error: %v", err)
+	}
+	if val != "false" {
+		t.Errorf("Get(notify) = %q, want %q", val, "false")
+	}
+}
+
+func TestSet_NotifyWebhook(t *testing.T) {
+	cfg := Config{}
+	updated, err := Set(cfg, "notify_webhook", "https://hooks.slack.com/test")
+	if err != nil {
+		t.Fatalf("Set(notify_webhook): unexpected error: %v", err)
+	}
+	if updated.NotifyWebhook != "https://hooks.slack.com/test" {
+		t.Errorf("NotifyWebhook = %q, want %q", updated.NotifyWebhook, "https://hooks.slack.com/test")
+	}
+}
+
+func TestGet_NotifyWebhook(t *testing.T) {
+	cfg := Config{NotifyWebhook: "https://hooks.slack.com/test"}
+	val, err := Get(cfg, "notify_webhook")
+	if err != nil {
+		t.Fatalf("Get(notify_webhook): unexpected error: %v", err)
+	}
+	if val != "https://hooks.slack.com/test" {
+		t.Errorf("Get(notify_webhook) = %q, want %q", val, "https://hooks.slack.com/test")
+	}
+}
+
 func TestLoadWithRepo_RepoConfigOverridesCycles(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repoDir := initTempGitRepo(t)

@@ -14,6 +14,7 @@ import (
 	"github.com/willmurray/looper/internal/config"
 	"github.com/willmurray/looper/internal/git"
 	"github.com/willmurray/looper/internal/guards"
+	"github.com/willmurray/looper/internal/notify"
 	"github.com/willmurray/looper/internal/plan"
 	"github.com/willmurray/looper/internal/progress"
 	"github.com/willmurray/looper/internal/runner"
@@ -29,6 +30,7 @@ var (
 	flagYes      bool
 	flagReviewer string
 	flagStream   bool
+	flagNotify   bool
 )
 
 // Safety guarantees:
@@ -65,6 +67,7 @@ func init() {
 	implementCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Resolve config and print, but don't run agents")
 	implementCmd.Flags().BoolVarP(&flagYes, "yes", "y", false, "Skip git staging confirmation prompt")
 	implementCmd.Flags().BoolVar(&flagStream, "stream", false, "Stream agent output to the terminal (suppresses spinner)")
+	implementCmd.Flags().BoolVar(&flagNotify, "notify", false, "Send desktop notification when loop completes or aborts")
 }
 
 func runImplement(cmd *cobra.Command, args []string) error {
@@ -200,7 +203,15 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signals.WithInterrupt(context.Background())
 	defer cancel()
 
-	return implementLoop(ctx, cfg, ticket, planFile, cycles, timeout, flagStream)
+	doNotify := cfg.Notify || flagNotify
+	notifyTitle := "Looper — " + ticket
+	err = implementLoop(ctx, cfg, ticket, planFile, cycles, timeout, flagStream)
+	if err != nil {
+		notify.Send(doNotify, cfg.NotifyWebhook, notifyTitle, "Loop aborted: "+err.Error())
+	} else {
+		notify.Send(doNotify, cfg.NotifyWebhook, notifyTitle, "Loop finished successfully")
+	}
+	return err
 }
 
 // implementLoop runs the implement/review agent cycle. It is called by both

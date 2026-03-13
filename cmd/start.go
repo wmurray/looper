@@ -14,6 +14,7 @@ import (
 	"github.com/willmurray/looper/internal/config"
 	"github.com/willmurray/looper/internal/git"
 	"github.com/willmurray/looper/internal/linear"
+	"github.com/willmurray/looper/internal/notify"
 	"github.com/willmurray/looper/internal/runner"
 	"github.com/willmurray/looper/internal/signals"
 	"github.com/willmurray/looper/internal/ui"
@@ -24,6 +25,7 @@ var (
 	startFlagTimeout int
 	startFlagYes     bool
 	startFlagDryRun  bool
+	startFlagNotify  bool
 )
 
 type resumeState int
@@ -68,6 +70,7 @@ func init() {
 	startCmd.Flags().IntVar(&startFlagTimeout, "timeout", 0, "Timeout per iteration in seconds (default from config)")
 	startCmd.Flags().BoolVarP(&startFlagYes, "yes", "y", false, "Skip git staging confirmation prompt")
 	startCmd.Flags().BoolVar(&startFlagDryRun, "dry-run", false, "Fetch and plan but don't run agents")
+	startCmd.Flags().BoolVar(&startFlagNotify, "notify", false, "Send desktop notification when loop completes or aborts")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -180,7 +183,15 @@ func runStart(cmd *cobra.Command, args []string) error {
 			}
 			ui.Phase("Resuming implement loop for %s", issue.Identifier)
 			fmt.Println()
-			return implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, false)
+			loopErr := implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, false)
+			doNotify := cfg.Notify || startFlagNotify
+			notifyTitle := "Looper — " + issue.Identifier
+			if loopErr != nil {
+				notify.Send(doNotify, cfg.NotifyWebhook, notifyTitle, "Loop aborted: "+loopErr.Error())
+			} else {
+				notify.Send(doNotify, cfg.NotifyWebhook, notifyTitle, "Loop finished successfully")
+			}
+			return loopErr
 		case resumePlanExists:
 			ui.Phase("Plan already exists: %s", planFile)
 			skipPlanGeneration = true
@@ -296,5 +307,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	return implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, false)
+	loopErr := implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, false)
+	doNotify := cfg.Notify || startFlagNotify
+	notifyTitle := "Looper — " + issue.Identifier
+	if loopErr != nil {
+		notify.Send(doNotify, cfg.NotifyWebhook, notifyTitle, "Loop aborted: "+loopErr.Error())
+	} else {
+		notify.Send(doNotify, cfg.NotifyWebhook, notifyTitle, "Loop finished successfully")
+	}
+	return loopErr
 }

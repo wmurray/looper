@@ -37,6 +37,8 @@ type Config struct {
 	LinearAPIKey  string   `json:"linear_api_key,omitempty"`
 	PolishAgent   string   `json:"polish_agent,omitempty"`
 	PolishCmds    []string `json:"polish_cmds,omitempty"`
+	Notify        bool     `json:"notify,omitempty"`
+	NotifyWebhook string   `json:"notify_webhook,omitempty"`
 }
 
 var defaultConfig = Config{
@@ -218,8 +220,15 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.PolishAgent, nil
 	case "polish_cmds":
 		return strings.Join(cfg.PolishCmds, ", "), nil
+	case "notify":
+		if cfg.Notify {
+			return "true", nil
+		}
+		return "false", nil
+	case "notify_webhook":
+		return cfg.NotifyWebhook, nil
 	default:
-		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds)", key)
+		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook)", key)
 	}
 }
 
@@ -269,8 +278,19 @@ func Set(cfg Config, key, value string) (Config, error) {
 			return cfg, fmt.Errorf("polish_cmds must contain at least one non-empty command")
 		}
 		cfg.PolishCmds = cmds
+	case "notify":
+		switch value {
+		case "true", "1":
+			cfg.Notify = true
+		case "false", "0":
+			cfg.Notify = false
+		default:
+			return cfg, fmt.Errorf("notify must be 'true' or 'false'")
+		}
+	case "notify_webhook":
+		cfg.NotifyWebhook = value
 	default:
-		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds)", key)
+		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook)", key)
 	}
 	return cfg, nil
 }
