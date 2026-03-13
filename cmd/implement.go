@@ -439,6 +439,12 @@ Complete the plan using Test-Driven Development:
 3. Refactor as needed
 4. All tests must pass before you complete
 
+Comment style (mandatory):
+- Only add a comment when it provides non-obvious value
+- Allowed prefixes: Why:, Invariant:, Gotcha:, Perf:, Ref: — followed by one specific sentence
+- Remove any comment that restates what the code does, narrates control flow, or explains a name that could be improved by renaming
+- If no comment is needed, write none
+
 Commit your changes following the commit-changes skill at ~/.claude/skills/commit-changes/SKILL.md. Output only the commit message.`, skillPath, planContent, historySection))
 }
 
