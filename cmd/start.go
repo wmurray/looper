@@ -138,7 +138,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if startFlagTimeout > 0 {
 		timeout = startFlagTimeout
 	}
-	retries := cfg.Retries
+	retries := 0
+	if cfg.Retries != nil {
+		retries = *cfg.Retries
+	}
 	if startFlagRetries >= 0 {
 		retries = startFlagRetries
 	}

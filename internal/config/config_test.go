@@ -765,19 +765,19 @@ func TestSet_Retries_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Set(retries, 3): unexpected error: %v", err)
 	}
-	if updated.Retries != 3 {
-		t.Errorf("Retries = %d, want 3", updated.Retries)
+	if updated.Retries == nil || *updated.Retries != 3 {
+		t.Errorf("Retries = %v, want pointer to 3", updated.Retries)
 	}
 }
 
 func TestSet_Retries_Zero(t *testing.T) {
-	cfg := Config{Retries: 2}
+	cfg := Config{Retries: intPtr(2)}
 	updated, err := Set(cfg, "retries", "0")
 	if err != nil {
 		t.Fatalf("Set(retries, 0): unexpected error: %v", err)
 	}
-	if updated.Retries != 0 {
-		t.Errorf("Retries = %d, want 0", updated.Retries)
+	if updated.Retries == nil || *updated.Retries != 0 {
+		t.Errorf("Retries = %v, want pointer to 0", updated.Retries)
 	}
 }
 
@@ -798,13 +798,24 @@ func TestSet_Retries_NonInt_ReturnsError(t *testing.T) {
 }
 
 func TestGet_Retries(t *testing.T) {
-	cfg := Config{Retries: 3}
+	cfg := Config{Retries: intPtr(3)}
 	val, err := Get(cfg, "retries")
 	if err != nil {
 		t.Fatalf("Get(retries): unexpected error: %v", err)
 	}
 	if val != "3" {
 		t.Errorf("Get(retries) = %q, want %q", val, "3")
+	}
+}
+
+func TestGet_Retries_Nil(t *testing.T) {
+	cfg := Config{} // Retries is nil
+	val, err := Get(cfg, "retries")
+	if err != nil {
+		t.Fatalf("Get(retries) on nil: unexpected error: %v", err)
+	}
+	if val != "0" {
+		t.Errorf("Get(retries) on nil = %q, want %q", val, "0")
 	}
 }
 
@@ -825,10 +836,10 @@ func TestGet_Retries_RoundTrip(t *testing.T) {
 
 func TestApplyRepoOverlay_Retries(t *testing.T) {
 	dst := Config{}
-	src := Config{Retries: 2}
+	src := Config{Retries: intPtr(2)}
 	result, keys := applyRepoOverlay(dst, src)
-	if result.Retries != 2 {
-		t.Errorf("Retries = %d, want 2", result.Retries)
+	if result.Retries == nil || *result.Retries != 2 {
+		t.Errorf("Retries = %v, want pointer to 2", result.Retries)
 	}
 	found := false
 	for _, k := range keys {
@@ -845,19 +856,45 @@ func TestApplyRepoOverlay_Retries(t *testing.T) {
 // repo config cannot clear a non-zero global value. This is intentional: the
 // same > 0 sentinel used by cycles and timeout is applied here for consistency.
 // A follow-up could allow zero to mean "disable" if that use case arises.
-func TestApplyRepoOverlay_RetriesZeroNotOverridden(t *testing.T) {
-	dst := Config{Retries: 2}
-	src := Config{Retries: 0}
+// TestApplyRepoOverlay_RetriesZeroOverridesGlobal documents that retries: 0 in
+// a repo config must override a non-zero global value. This requires *int so
+// that a nil pointer (absent from JSON) is distinguishable from a pointer to 0
+// (explicitly set to zero).
+func TestApplyRepoOverlay_RetriesZeroOverridesGlobal(t *testing.T) {
+	dst := Config{Retries: intPtr(2)}
+	src := Config{Retries: intPtr(0)}
 	result, keys := applyRepoOverlay(dst, src)
-	if result.Retries != 2 {
-		t.Errorf("Retries = %d, want 2 (zero should not override non-zero global)", result.Retries)
+	if result.Retries == nil || *result.Retries != 0 {
+		t.Errorf("Retries = %v, want pointer to 0 (explicit zero must override global non-zero)", result.Retries)
+	}
+	found := false
+	for _, k := range keys {
+		if k == "retries" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("overlay keys = %v, want 'retries' to be present when explicitly set to 0", keys)
+	}
+}
+
+// TestApplyRepoOverlay_RetriesAbsentDoesNotOverride documents that a repo
+// config with no retries field (nil pointer) leaves the global value intact.
+func TestApplyRepoOverlay_RetriesAbsentDoesNotOverride(t *testing.T) {
+	dst := Config{Retries: intPtr(2)}
+	src := Config{} // Retries is nil — not set in repo config
+	result, keys := applyRepoOverlay(dst, src)
+	if result.Retries == nil || *result.Retries != 2 {
+		t.Errorf("Retries = %v, want pointer to 2 (absent repo config must not override global)", result.Retries)
 	}
 	for _, k := range keys {
 		if k == "retries" {
-			t.Errorf("overlay keys should not include 'retries' when src.Retries == 0, got %v", keys)
+			t.Errorf("overlay keys should not include 'retries' when src.Retries is nil, got %v", keys)
 		}
 	}
 }
+
+func intPtr(n int) *int { return &n }
 
 func TestGet_NotifyWebhook(t *testing.T) {
 	cfg := Config{NotifyWebhook: "https://hooks.slack.com/test"}

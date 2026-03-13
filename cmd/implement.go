@@ -86,7 +86,10 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	if flagTimeout > 0 {
 		timeout = flagTimeout
 	}
-	retries := cfg.Retries
+	retries := 0
+	if cfg.Retries != nil {
+		retries = *cfg.Retries
+	}
 	if flagRetries >= 0 {
 		retries = flagRetries
 	}
