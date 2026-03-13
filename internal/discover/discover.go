@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 )
 
-// Kind identifies whether a found file is a skill or an agent.
 type Kind int
 
 const (
@@ -22,15 +21,12 @@ func (k Kind) String() string {
 	return "agent"
 }
 
-// Found represents a single discovered skill or agent file.
 type Found struct {
 	Kind Kind
-	Path string // absolute path
+	Path string
 }
 
-// Scan globs all canonical ~/.claude/ locations and returns every skill/agent
-// file found. homeDir is the home directory to use (normally the result of
-// os.UserHomeDir(); injected here so tests can use a temp directory).
+// Why: homeDir is injected so tests can use a temp directory instead of ~/.claude/.
 func Scan(homeDir string) ([]Found, error) {
 	base := filepath.Join(homeDir, ".claude")
 
@@ -59,7 +55,7 @@ func Scan(homeDir string) ([]Found, error) {
 			if err != nil {
 				return nil, err
 			}
-			// Skip directories that accidentally match the glob.
+			// Gotcha: filepath.Glob can match directories; skip them.
 			info, err := os.Stat(abs)
 			if err != nil || info.IsDir() {
 				continue

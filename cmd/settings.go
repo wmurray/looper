@@ -142,7 +142,6 @@ When multiple candidates exist for a key, the command is printed but skipped.`,
 			return nil
 		}
 
-		// Separate by kind.
 		var skills, agents []discover.Found
 		for _, f := range found {
 			if f.Kind == discover.KindSkill {
@@ -170,7 +169,6 @@ When multiple candidates exist for a key, the command is printed but skipped.`,
 			return nil
 		}
 
-		// --apply: set key only when exactly one candidate exists.
 		applyOne := func(key string, items []discover.Found) error {
 			if len(items) == 0 {
 				return nil

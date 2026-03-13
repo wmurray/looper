@@ -9,7 +9,6 @@ import (
 	"github.com/willmurray/looper/internal/ui"
 )
 
-// stackIndicator maps a project root filename to the stack keyword it signals.
 var stackIndicators = []struct {
 	file    string
 	keyword string
@@ -24,20 +23,16 @@ var stackIndicators = []struct {
 	{"build.gradle", "java"},
 }
 
-// warnOnStackMismatch checks whether the configured reviewer agent's basename
-// contains a keyword that matches the detected project stack. If no stack
-// indicators are found the function is silent (greenfield). If a mismatch is
-// detected it warns and, when available, suggests a better agent from
-// ~/.claude/.
+// Why: silent when no stack is detected so greenfield repos don't generate noise.
 func warnOnStackMismatch(projectDir, reviewerBasename string) {
 	keyword := detectStack(projectDir)
 	if keyword == "" {
-		return // greenfield — nothing to check
+		return
 	}
 
 	reviewerLower := strings.ToLower(reviewerBasename)
 	if strings.Contains(reviewerLower, keyword) {
-		return // reviewer matches detected stack
+		return
 	}
 
 	ui.Warn("reviewer_agent may not match the project stack (detected: %s, reviewer: %s)", keyword, reviewerBasename)
@@ -62,8 +57,6 @@ func warnOnStackMismatch(projectDir, reviewerBasename string) {
 	}
 }
 
-// detectStack returns the first stack keyword matched by a known indicator
-// file in projectDir, or "" if none are found.
 func detectStack(projectDir string) string {
 	for _, ind := range stackIndicators {
 		if _, err := os.Stat(filepath.Join(projectDir, ind.file)); err == nil {

@@ -8,11 +8,7 @@ import (
 	"github.com/willmurray/looper/internal/ui"
 )
 
-// warnIfPathMissing checks whether the file at configuredPath exists. If it
-// does not, it warns the user and attempts to find a replacement by scanning
-// ~/.claude/ for files with the same basename. When exactly one match is found
-// it prints a ready-to-run "looper settings set" command.
-// Returns true if the path is missing.
+// Gotcha: returns true when the path is missing so callers can gate further checks.
 func warnIfPathMissing(key, configuredPath string) bool {
 	if _, err := os.Stat(configuredPath); err == nil {
 		return false
