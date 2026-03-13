@@ -1,6 +1,8 @@
 package guards
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"sort"
 	"strings"
@@ -17,9 +19,9 @@ type GuardResult struct {
 
 // State tracks running guard counters across loop iterations.
 type State struct {
-	ThrashCount int
-	StuckCount  int
-	PrevIssues  string
+	ThrashCount   int
+	StuckCount    int
+	PrevIssueHash string
 }
 
 // CheckNoChanges fires if neither the diff nor HEAD changed.
@@ -43,46 +45,64 @@ func (s *State) CheckNoChanges(gitDiff string, headChanged bool) GuardResult {
 	}
 }
 
-var issueKeywords = regexp.MustCompile(`(?i)\b(TODO|FIXME|bug|issue|error|fail|undefined|nil)\b`)
+var sentenceSplitter = regexp.MustCompile(`[.!?]+(?:\s+|$)`)
 
-// CheckRepeatedIssues fires if the same issue keywords appear in consecutive reviews.
+// extractSentences splits text into normalized, deduplicated sentences.
+func extractSentences(text string) []string {
+	parts := sentenceSplitter.Split(text, -1)
+	seen := map[string]bool{}
+	result := []string{}
+	for _, p := range parts {
+		s := strings.ToLower(strings.TrimSpace(p))
+		if len(s) < 8 || seen[s] {
+			continue
+		}
+		seen[s] = true
+		result = append(result, s)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// hashSentences returns a stable, order-independent fingerprint of a sentence set.
+func hashSentences(sentences []string) string {
+	digests := make([]string, len(sentences))
+	for i, s := range sentences {
+		sum := sha256.Sum256([]byte(s))
+		digests[i] = hex.EncodeToString(sum[:])
+	}
+	sort.Strings(digests)
+	return strings.Join(digests, ",")
+}
+
+// CheckRepeatedIssues fires if the exact same sentences recur across consecutive reviews.
 // 2 consecutive matches triggers an abort.
 func (s *State) CheckRepeatedIssues(reviewOutput string) GuardResult {
-	matches := issueKeywords.FindAllString(reviewOutput, -1)
+	sentences := extractSentences(reviewOutput)
 
-	// Normalize: lowercase + deduplicate + sort
-	seen := map[string]bool{}
-	for _, m := range matches {
-		seen[strings.ToLower(m)] = true
-	}
-	keys := make([]string, 0, len(seen))
-	for k := range seen {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	current := strings.Join(keys, ",")
-
-	if current == "" {
+	if len(sentences) == 0 {
 		s.StuckCount = 0
-		s.PrevIssues = ""
+		s.PrevIssueHash = ""
 		return GuardResult{}
 	}
 
-	if s.PrevIssues != "" && current == s.PrevIssues {
+	current := hashSentences(sentences)
+
+	if s.PrevIssueHash != "" && current == s.PrevIssueHash {
 		s.StuckCount++
 		if s.StuckCount >= 2 {
 			return GuardResult{
 				Triggered: true,
-				Message:   "Same issues repeated in 2 consecutive reviews: " + current,
+				Message:   "Same issues repeated in 2 consecutive reviews",
 			}
 		}
 		return GuardResult{
 			Warning: true,
-			Message: "Same issues appearing again (1/2 before abort): " + current,
+			Message: "Same issues appearing again (1/2 before abort)",
 		}
 	}
 
 	s.StuckCount = 0
-	s.PrevIssues = current
+	s.PrevIssueHash = current
 	return GuardResult{}
 }
