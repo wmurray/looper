@@ -19,8 +19,7 @@ const (
 	repoConfigFile = ".looper.json"
 )
 
-// minTimeout is the minimum valid timeout in seconds.
-// Values below this are treated as absent/unset in both global and repo configs.
+// Gotcha: values below this are treated as absent/unset in both Load and applyRepoOverlay.
 const minTimeout = 10
 
 type Defaults struct {
@@ -78,7 +77,6 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("invalid config file: %w", err)
 	}
 
-	// Fill in zero values with defaults
 	if cfg.Backend == "" {
 		cfg.Backend = defaultConfig.Backend
 	}
@@ -101,10 +99,7 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-// applyRepoOverlay copies non-zero fields from src onto dst, returning the
-// updated dst and a list of dot-notation keys that were applied.
-// TrustedDirs is intentionally excluded: allowing a repo config to grant
-// itself trust would undermine the security model.
+// Why: TrustedDirs is excluded — allowing a repo config to grant itself trust would undermine the security model.
 func applyRepoOverlay(dst, src Config) (Config, []string) {
 	var keys []string
 	if src.Backend != "" {
@@ -159,7 +154,6 @@ func LoadWithRepo() (Config, string, []string, error) {
 
 	root, err := git.RepoRoot()
 	if err != nil {
-		// Not in a git repo — no repo config to apply.
 		return cfg, "", nil, nil
 	}
 	repoPath := filepath.Join(root, repoConfigFile)
