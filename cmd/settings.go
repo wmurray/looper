@@ -116,6 +116,8 @@ var settingsResetCmd = &cobra.Command{
 }
 
 var discoverApply bool
+var discoverAI bool
+var discoverYes bool
 
 var settingsDiscoverCmd = &cobra.Command{
 	Use:   "discover",
@@ -125,11 +127,20 @@ var settingsDiscoverCmd = &cobra.Command{
 Prints ready-to-run "looper settings set" commands for each file found.
 
 With --apply, automatically sets any key that has exactly one candidate.
-When multiple candidates exist for a key, the command is printed but skipped.`,
+When multiple candidates exist for a key, the command is printed but skipped.
+
+With --ai, reads discovered file contents, detects the project stack, and asks
+the configured backend to recommend which paths to assign to skill_path and
+reviewer_agent. A diff is printed and the user is prompted before any changes
+are written. Use --yes to skip the confirmation prompt.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return fmt.Errorf("could not determine home directory: %w", err)
+		}
+
+		if discoverAI {
+			return runAIDiscover(home, discoverYes)
 		}
 
 		found, err := discover.Scan(home)
@@ -201,6 +212,8 @@ When multiple candidates exist for a key, the command is printed but skipped.`,
 
 func init() {
 	settingsDiscoverCmd.Flags().BoolVar(&discoverApply, "apply", false, "Auto-set keys with exactly one candidate")
+	settingsDiscoverCmd.Flags().BoolVar(&discoverAI, "ai", false, "Use the configured backend to recommend skill_path and reviewer_agent")
+	settingsDiscoverCmd.Flags().BoolVarP(&discoverYes, "yes", "y", false, "Skip confirmation prompt (only meaningful with --ai)")
 	settingsCmd.AddCommand(settingsGetCmd)
 	settingsCmd.AddCommand(settingsSetCmd)
 	settingsCmd.AddCommand(settingsResetCmd)
