@@ -85,8 +85,7 @@ func TestRunArgs_Timeout(t *testing.T) {
 
 func TestRunArgs_Cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	// Use time.AfterFunc so the cancel fires after the subprocess is running,
-	// without relying on a fixed sleep that may be too short on loaded CI.
+	// Why: time.AfterFunc fires after the subprocess is running; a fixed sleep may be too short on loaded CI.
 	timer := time.AfterFunc(50*time.Millisecond, cancel)
 	defer timer.Stop()
 

@@ -26,7 +26,6 @@ var (
 	startFlagDryRun  bool
 )
 
-// resumeState describes how far a previous interrupted run got.
 type resumeState int
 
 const (
@@ -35,8 +34,7 @@ const (
 	resumeHasIterations                   // implement loop ran at least once
 )
 
-// resolveResumeState classifies the current resume state using injected predicates.
-// Using function parameters makes this testable without a real git repo or filesystem.
+// Why: injected predicates make this testable without a real git repo or filesystem.
 func resolveResumeState(hasWork func() bool, statPlan func() error) resumeState {
 	if hasWork() {
 		return resumeHasIterations
@@ -84,13 +82,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("linear_api_key not set\nRun: looper settings set linear_api_key <your-key>")
 	}
 
-	// Validate ticket_pattern before hitting the network.
+	// Why: validate pattern before hitting the network to avoid a wasted API round-trip.
 	ticketRe, err := regexp.Compile(cfg.TicketPattern)
 	if err != nil {
 		return fmt.Errorf("invalid ticket_pattern %q: %w", cfg.TicketPattern, err)
 	}
 
-	// Require a clean working tree before creating a new branch.
 	if err := git.AssertRepo(); err != nil {
 		return err
 	}
@@ -98,12 +95,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Create the interrupt context early so it covers Linear API calls,
-	// plan generation, and the implement loop.
+	// Why: covers Linear API calls, plan generation, and the implement loop.
 	ctx, cancel := signals.WithInterrupt(context.Background())
 	defer cancel()
 
-	// --- FETCH ISSUE ---
 	client := linear.New(cfg.LinearAPIKey)
 
 	fetchSpinner := ui.NewSpinner(fmt.Sprintf("Fetching %s from Linear...", ticketID))
@@ -115,8 +110,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	fetchSpinner.Stop()
 
-	// Validate the API-returned identifier against the configured pattern
-	// before using it as a filename.
+	// Why: guard against an unexpected identifier being used as a filename.
 	if !ticketRe.MatchString(issue.Identifier) {
 		return fmt.Errorf("Linear returned unexpected identifier %q (does not match ticket_pattern %q)", issue.Identifier, cfg.TicketPattern)
 	}
@@ -124,13 +118,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 	ui.Header("  %s: %s", issue.Identifier, issue.Title)
 	fmt.Println()
 
-	// --- BRANCH ---
 	branchName := issue.BranchName
 	if branchName == "" {
 		branchName = linear.SlugifyBranch(issue.Identifier, issue.Title)
 	}
 
-	// Resolve cycles and timeout from flags, falling back to config defaults.
 	cycles := cfg.Defaults.Cycles
 	if startFlagCycles > 0 {
 		cycles = startFlagCycles
@@ -165,22 +157,17 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// --- SET IN PROGRESS ---
 	progressSpinner := ui.NewSpinner("Setting ticket In Progress...")
 	progressSpinner.Start()
 	if err := client.SetInProgress(ctx, issue.ID, issue.Team.ID); err != nil {
 		progressSpinner.Abort()
-		// Non-fatal: warn and continue. Failing to update the ticket state
-		// should not block the implementation work.
+		// Why: a stale ticket state should not block implementation.
 		ui.Warn("Could not set In Progress: %v", err)
 	} else {
 		progressSpinner.Stop()
 	}
 
-	// --- RESOLVE PLAN ---
 	planFile := issue.Identifier + "_PLAN.md"
-
-	// On resume: short-circuit based on how far the previous run got.
 	skipPlanGeneration := false
 	if resumed {
 		switch resolveResumeState(git.HasIterationWork, func() error {
@@ -188,7 +175,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 			return err
 		}) {
 		case resumeHasIterations:
-			// Implement loop ran at least once — resume it directly.
 			if _, err := os.Stat(planFile); err != nil {
 				return fmt.Errorf("resuming %s: plan file %s not found (was it deleted?)", issue.Identifier, planFile)
 			}
@@ -196,24 +182,20 @@ func runStart(cmd *cobra.Command, args []string) error {
 			fmt.Println()
 			return implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, false)
 		case resumePlanExists:
-			// Plan written but loop never started — skip generation.
 			ui.Phase("Plan already exists: %s", planFile)
 			skipPlanGeneration = true
 		case resumeNoPlan:
-			// Branch exists but neither plan nor iterations — re-run plan generation.
 		}
 	}
 
 	needsPlan := !skipPlanGeneration
 	if needsPlan {
 		if plan, ok := linear.PlanFromAttachment(issue.Attachments); ok {
-			// Attachment contains a pre-written plan — use it directly.
 			ui.Phase("Using plan from looper-plan attachment")
 			if err := os.WriteFile(planFile, []byte(strings.TrimSpace(plan)+"\n"), 0644); err != nil {
 				return fmt.Errorf("write plan file: %w", err)
 			}
 		} else {
-			// Generate plan from the ticket description via AI.
 			var planContent []byte
 			if issue.Description == "" {
 				ui.Warn("Ticket has no description — generating minimal plan template")
@@ -256,8 +238,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 				}
 			}
 
-			// Attach the generated plan to the Linear ticket so it travels with the issue.
-			// Non-fatal: a failure here should not block the implement loop.
+			// Why: plan travels with the issue in Linear; non-fatal so the loop is never blocked.
 			attachSpinner := ui.NewSpinner(fmt.Sprintf("Attaching plan to %s...", issue.Identifier))
 			attachSpinner.Start()
 			if err := client.AttachPlan(ctx, issue.ID, string(planContent)); err != nil {
@@ -273,7 +254,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 		ui.Phase("Plan written: %s", planFile)
 	}
 
-	// --- SKILL FILE WARNINGS ---
 	skillPath := config.ExpandPath(cfg.SkillPath)
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
 	missingFiles := warnIfPathMissing("skill_path", skillPath) || warnIfPathMissing("reviewer_agent", reviewerAgent)
@@ -283,8 +263,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	if missingFiles && !startFlagYes {
-		// Note: branch and plan file are already committed at this point.
-		// An abort here leaves them in place; the user can delete the branch manually.
+		// Gotcha: branch and plan already exist; aborting here leaves them for manual cleanup.
 		fmt.Printf("\nSkill files are missing. Continue anyway? [y/N] ")
 		scanner := bufio.NewScanner(os.Stdin)
 		if !scanner.Scan() {
@@ -296,7 +275,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
-	// --- GIT STAGING CONFIRMATION ---
 	if !startFlagYes {
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -318,6 +296,5 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	// --- RUN IMPLEMENT LOOP ---
 	return implementLoop(ctx, cfg, issue.Identifier, planFile, cycles, timeout, false)
 }
