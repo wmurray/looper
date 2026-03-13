@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/willmurray/looper/internal/config"
+	"github.com/willmurray/looper/internal/discover"
 )
 
 var settingsCmd = &cobra.Command{
@@ -114,8 +115,96 @@ var settingsResetCmd = &cobra.Command{
 	},
 }
 
+var discoverApply bool
+
+var settingsDiscoverCmd = &cobra.Command{
+	Use:   "discover",
+	Short: "Scan ~/.claude/ for installed skills and agents",
+	Long: `Scan canonical ~/.claude/ locations for installed skill and agent files.
+
+Prints ready-to-run "looper settings set" commands for each file found.
+
+With --apply, automatically sets any key that has exactly one candidate.
+When multiple candidates exist for a key, the command is printed but skipped.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("could not determine home directory: %w", err)
+		}
+
+		found, err := discover.Scan(home)
+		if err != nil {
+			return fmt.Errorf("scan failed: %w", err)
+		}
+
+		if len(found) == 0 {
+			fmt.Println("No skills or agents found under ~/.claude/")
+			return nil
+		}
+
+		// Separate by kind.
+		var skills, agents []discover.Found
+		for _, f := range found {
+			if f.Kind == discover.KindSkill {
+				skills = append(skills, f)
+			} else {
+				agents = append(agents, f)
+			}
+		}
+
+		printGroup := func(header, key string, items []discover.Found) {
+			if len(items) == 0 {
+				return
+			}
+			fmt.Printf("%s:\n", header)
+			for _, item := range items {
+				fmt.Printf("  looper settings set %s %s\n", key, item.Path)
+			}
+			fmt.Println()
+		}
+
+		printGroup("Skills (skill_path)", "skill_path", skills)
+		printGroup("Agents (reviewer_agent)", "reviewer_agent", agents)
+
+		if !discoverApply {
+			return nil
+		}
+
+		// --apply: set key only when exactly one candidate exists.
+		applyOne := func(key string, items []discover.Found) error {
+			if len(items) == 0 {
+				return nil
+			}
+			if len(items) > 1 {
+				fmt.Printf("Skipping %s — %d candidates found (ambiguous)\n", key, len(items))
+				return nil
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			cfg, err = config.Set(cfg, key, items[0].Path)
+			if err != nil {
+				return err
+			}
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+			fmt.Printf("Set %s = %s\n", key, items[0].Path)
+			return nil
+		}
+
+		if err := applyOne("skill_path", skills); err != nil {
+			return err
+		}
+		return applyOne("reviewer_agent", agents)
+	},
+}
+
 func init() {
+	settingsDiscoverCmd.Flags().BoolVar(&discoverApply, "apply", false, "Auto-set keys with exactly one candidate")
 	settingsCmd.AddCommand(settingsGetCmd)
 	settingsCmd.AddCommand(settingsSetCmd)
 	settingsCmd.AddCommand(settingsResetCmd)
+	settingsCmd.AddCommand(settingsDiscoverCmd)
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -275,17 +276,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// --- SKILL FILE WARNINGS ---
 	skillPath := config.ExpandPath(cfg.SkillPath)
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
-	missingFiles := false
-	if _, err := os.Stat(skillPath); err != nil {
-		ui.Warn("skill_path not found: %s", skillPath)
-		ui.Warn("Set it with: looper settings set skill_path <path>")
-		missingFiles = true
+	missingFiles := warnIfPathMissing("skill_path", skillPath) || warnIfPathMissing("reviewer_agent", reviewerAgent)
+
+	if cwd, err := os.Getwd(); err == nil {
+		warnOnStackMismatch(cwd, filepath.Base(reviewerAgent))
 	}
-	if _, err := os.Stat(reviewerAgent); err != nil {
-		ui.Warn("reviewer_agent not found: %s", reviewerAgent)
-		ui.Warn("Set it with: looper settings set reviewer_agent <path>")
-		missingFiles = true
-	}
+
 	if missingFiles && !startFlagYes {
 		// Note: branch and plan file are already committed at this point.
 		// An abort here leaves them in place; the user can delete the branch manually.
