@@ -63,13 +63,11 @@ func runPolish(cmd *cobra.Command) error {
 
 	agentPath := config.ExpandPath(resolvePolishAgent(cfg))
 
-	// Warn (non-fatal) if agent path does not exist.
 	if _, err := os.Stat(agentPath); err != nil {
 		ui.Warn("polish agent not found: %s", agentPath)
 		ui.Warn("Set it with: looper settings set polish_agent <path>")
 	}
 
-	// Infer ticket from branch name (non-fatal if absent).
 	var ticket string
 	if cfg.TicketPattern != "" {
 		if re, err := regexp.Compile(cfg.TicketPattern); err == nil {
@@ -80,7 +78,6 @@ func runPolish(cmd *cobra.Command) error {
 		ui.Warn("No ticket found in branch name — polish will run without ticket context.")
 	}
 
-	// Warn if branch has no iteration work.
 	if !git.HasIterationWork() {
 		ui.Warn("No looper iteration commits found on this branch — polish may be running prematurely.")
 	}
@@ -113,7 +110,6 @@ func runPolish(cmd *cobra.Command) error {
 
 	commitsMade := 0
 
-	// --- LINT PHASE ---
 	if len(cfg.PolishCmds) > 0 {
 		ui.Phase("Lint phase — running formatters/linters")
 		repoRoot, err := git.RepoRoot()
@@ -135,7 +131,6 @@ func runPolish(cmd *cobra.Command) error {
 		}
 	}
 
-	// --- AGENT POLISH PHASE ---
 	ui.Iteration("Polish pass — agent review")
 
 	headBefore := git.Head()
@@ -204,13 +199,7 @@ func runPolish(cmd *cobra.Command) error {
 	return nil
 }
 
-// agentDecision classifies what the agent did after it ran.
-// Returns (isSelfCommit, hasPendingChanges).
-//   - isSelfCommit=true means the agent advanced HEAD itself; nothing to stage.
-//   - hasPendingChanges=true means the working tree is dirty; caller must commit.
-//
-// The two flags are mutually exclusive: if the agent self-committed, the
-// working tree is expected to be clean and there is nothing left to stage.
+// Invariant: isSelfCommit and hasPendingChanges are mutually exclusive.
 func agentDecision(diff, status, headBefore, headAfter string) (isSelfCommit, hasPendingChanges bool) {
 	if headAfter != headBefore {
 		return true, false
@@ -218,8 +207,7 @@ func agentDecision(diff, status, headBefore, headAfter string) (isSelfCommit, ha
 	return false, strings.TrimSpace(diff) != "" || strings.TrimSpace(status) != ""
 }
 
-// runLintCmds executes each command in cmds via sh -c with repoRoot as the working directory.
-// Returns an error (and prints an alert) on the first non-zero exit.
+// Gotcha: stops on the first non-zero exit; remaining commands are not run.
 func runLintCmds(ctx context.Context, cmds []string, repoRoot string) error {
 	for _, lintCmd := range cmds {
 		c := exec.CommandContext(ctx, "sh", "-c", lintCmd)
@@ -235,7 +223,6 @@ func runLintCmds(ctx context.Context, cmds []string, repoRoot string) error {
 	return nil
 }
 
-// buildDryRunOutput returns the dry-run summary string (ticket, agent, lint commands, timeout, backend).
 func buildDryRunOutput(ticket, agentPath string, cmds []string, timeout int, backend string) string {
 	displayTicket := ticket
 	if displayTicket == "" {
@@ -245,8 +232,7 @@ func buildDryRunOutput(ticket, agentPath string, cmds []string, timeout int, bac
 		displayTicket, agentPath, strings.Join(cmds, ", "), timeout, backend)
 }
 
-// resolvePolishAgent returns the effective agent path for the polish pass.
-// Falls back to cfg.ReviewerAgent when PolishAgent is empty.
+// Why: falls back to ReviewerAgent so users without polish_agent set get sensible behavior.
 func resolvePolishAgent(cfg config.Config) string {
 	if cfg.PolishAgent != "" {
 		return cfg.PolishAgent
@@ -254,7 +240,6 @@ func resolvePolishAgent(cfg config.Config) string {
 	return cfg.ReviewerAgent
 }
 
-// buildPolishPrompt constructs the inline prompt sent to the polish agent.
 func buildPolishPrompt(agentPath string) string {
 	return strings.TrimSpace(fmt.Sprintf(`You are performing a post-implementation polish pass on this branch.
 

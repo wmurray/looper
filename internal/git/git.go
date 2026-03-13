@@ -197,7 +197,6 @@ func CommitPolishWIP() error {
 	return nil
 }
 
-// CommitWIP commits with a WIP message (used on timeout/failure).
 func CommitWIP(iteration int, phase string) error {
 	status, _ := run("status", "--porcelain")
 	if strings.TrimSpace(status) == "" {
