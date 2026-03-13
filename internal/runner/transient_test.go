@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 )
 
@@ -38,12 +39,12 @@ func TestIsTransient(t *testing.T) {
 
 // stubRunner returns a RunFn that cycles through the given results.
 func stubRunner(results []Result) RunFn {
-	i := 0
+	var i atomic.Int32
 	return func(ctx context.Context, prompt string, timeoutSecs int, backend string) <-chan Result {
 		ch := make(chan Result, 1)
-		if i < len(results) {
-			ch <- results[i]
-			i++
+		idx := int(i.Add(1)) - 1
+		if idx < len(results) {
+			ch <- results[idx]
 		} else {
 			ch <- results[len(results)-1]
 		}

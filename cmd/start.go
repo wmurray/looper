@@ -227,7 +227,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 				genSpinner.Start()
 
 				prompt := buildPlanPrompt(issue.Identifier, issue.Description)
-				result := <-runner.RunAsync(ctx, prompt, cfg.Defaults.Timeout, cfg.Backend)
+				result := runner.RunWithRetry(ctx, runner.RunAsyncFn(), prompt, cfg.Defaults.Timeout, cfg.Backend, retries, "plan-gen", nil, func(format string, args ...any) {
+					ui.Warn(format, args...)
+				})
 
 				if result.Cancelled {
 					genSpinner.Abort()
