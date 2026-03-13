@@ -19,11 +19,10 @@ var allowedAIKeys = map[string]bool{
 	"reviewer_agent": true,
 }
 
-// jsonObjectRE extracts the first JSON object from a string that may contain preamble/postamble.
+// Why: extracts the first JSON object so agent preamble/postamble doesn't break parsing.
 var jsonObjectRE = regexp.MustCompile(`\{[^{}]*\}`)
 
-// validateAISuggestions parses the agent response and removes invalid entries.
-// It rejects unknown keys and paths not in the scanned set.
+// Invariant: only keys in allowedAIKeys and paths in scannedPaths are returned — guards against hallucinated paths.
 func validateAISuggestions(raw string, scannedPaths map[string]bool) map[string]string {
 	match := jsonObjectRE.FindString(raw)
 	if match == "" {
@@ -46,17 +45,16 @@ func validateAISuggestions(raw string, scannedPaths map[string]bool) map[string]
 	return result
 }
 
-// discoverConfigLoadFn is a function variable so tests can inject a fake config loader.
+// Why: injected so tests can supply a fake config without touching the filesystem.
 var discoverConfigLoadFn = func() (config.Config, error) {
 	return config.Load()
 }
 
-// discoverRunFn is a function variable so tests can inject a fake runner.
+// Why: injected so tests can supply a stub runner without calling a real agent binary.
 var discoverRunFn = func(ctx context.Context, prompt string, timeoutSecs int, backend string) runner.Result {
 	return runner.Run(ctx, prompt, timeoutSecs, backend)
 }
 
-// runAIDiscover implements the --ai branch of settingsDiscoverCmd.
 func runAIDiscover(home string, yes bool) error {
 	cfg, err := discoverConfigLoadFn()
 	if err != nil {
@@ -76,7 +74,6 @@ func runAIDiscover(home string, yes bool) error {
 		return nil
 	}
 
-	// Read file contents; skip unreadable files with a warning.
 	contents := make(map[string]string, len(found))
 	scanned := make(map[string]bool, len(found))
 	for _, f := range found {
@@ -89,7 +86,6 @@ func runAIDiscover(home string, yes bool) error {
 		contents[f.Path] = string(data)
 	}
 
-	// Detect project stack from cwd.
 	cwd, _ := os.Getwd()
 	stack := detectStack(cwd)
 	if stack != "" {
@@ -116,7 +112,6 @@ func runAIDiscover(home string, yes bool) error {
 		return nil
 	}
 
-	// Build diff: skip rows where the suggested value equals the current value.
 	type row struct{ key, suggested, current string }
 	var rows []row
 	for _, k := range []string{"skill_path", "reviewer_agent"} {
@@ -175,8 +170,6 @@ func runAIDiscover(home string, yes bool) error {
 	return nil
 }
 
-// buildAIDiscoverPrompt constructs the prompt sent to the backend.
-// contents maps absolute path → file content for every discovered skill/agent.
 func buildAIDiscoverPrompt(stack, currentSkillPath, currentReviewerAgent string, contents map[string]string) string {
 	var b strings.Builder
 

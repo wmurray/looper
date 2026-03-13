@@ -13,7 +13,6 @@ import (
 	"github.com/willmurray/looper/internal/runner"
 )
 
-// makeAITree creates a skill and an agent file under the given home dir and returns their paths.
 func makeAITree(t *testing.T, home string) (skillPath, agentPath string) {
 	t.Helper()
 	skillPath = filepath.Join(home, ".claude", "skills", "tdd-workflow", "SKILL.md")
@@ -29,12 +28,10 @@ func makeAITree(t *testing.T, home string) (skillPath, agentPath string) {
 	return
 }
 
-// runSettingsDiscoverWithInput is like runSettingsDiscover but also injects stdin content.
 func runSettingsDiscoverWithInput(t *testing.T, home, stdinContent string, extraArgs ...string) (string, string, error) {
 	t.Helper()
 	t.Setenv("HOME", home)
 
-	// Inject stdin
 	rIn, wIn, _ := os.Pipe()
 	if _, err := io.WriteString(wIn, stdinContent); err != nil {
 		t.Fatalf("write stdin: %v", err)
@@ -44,12 +41,10 @@ func runSettingsDiscoverWithInput(t *testing.T, home, stdinContent string, extra
 	os.Stdin = rIn
 	defer func() { os.Stdin = oldIn }()
 
-	// Capture stdout
 	rOut, wOut, _ := os.Pipe()
 	oldOut := os.Stdout
 	os.Stdout = wOut
 
-	// Capture stderr
 	rErr, wErr, _ := os.Pipe()
 	oldErr := os.Stderr
 	os.Stderr = wErr
@@ -68,16 +63,13 @@ func runSettingsDiscoverWithInput(t *testing.T, home, stdinContent string, extra
 	return string(outBytes), string(errBytes), cmdErr
 }
 
-// stubRunnerWith returns a discoverRunFn replacement that returns a fixed output.
 func stubRunnerWith(output string) func(context.Context, string, int, string) runner.Result {
 	return func(_ context.Context, _ string, _ int, _ string) runner.Result {
 		return runner.Result{Output: output, ExitCode: 0}
 	}
 }
 
-// resetDiscoverFlagsOnCleanup schedules a cleanup that resets the cobra bool flag variables to
-// their defaults. Without this, cobra does not reset bound variables between test runs and a test
-// that passes --ai will corrupt subsequent tests.
+// Gotcha: cobra does not reset bound flag variables between test runs; without this, --ai in one test corrupts the next.
 func resetDiscoverFlagsOnCleanup(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -86,7 +78,6 @@ func resetDiscoverFlagsOnCleanup(t *testing.T) {
 	})
 }
 
-// TestValidateAISuggestions: table-driven tests for all validation branches.
 func TestValidateAISuggestions(t *testing.T) {
 	scanned := map[string]bool{
 		"/real/SKILL.md":  true,
@@ -144,7 +135,6 @@ func TestValidateAISuggestions(t *testing.T) {
 	}
 }
 
-// TestBuildAIDiscoverPrompt: prompt contains stack, current values, file contents, and format instruction.
 func TestBuildAIDiscoverPrompt(t *testing.T) {
 	contents := map[string]string{
 		"/path/to/SKILL.md":  "## TDD Workflow\nRed-green-refactor.",
@@ -174,7 +164,6 @@ func TestBuildAIDiscoverPrompt(t *testing.T) {
 	}
 }
 
-// TestSettingsDiscover_AI_NothingFound: --ai with empty home exits 0 with "No skills or agents found".
 func TestSettingsDiscover_AI_NothingFound(t *testing.T) {
 	resetDiscoverFlagsOnCleanup(t)
 	home := t.TempDir()
@@ -194,12 +183,10 @@ func TestSettingsDiscover_AI_NothingFound(t *testing.T) {
 	}
 }
 
-// TestSettingsDiscover_AI_NoBackend: --ai with no backend configured exits 1 with the right message.
 func TestSettingsDiscover_AI_NoBackend(t *testing.T) {
 	resetDiscoverFlagsOnCleanup(t)
 	home := t.TempDir()
 
-	// Inject a config with no backend set.
 	origLoad := discoverConfigLoadFn
 	discoverConfigLoadFn = func() (config.Config, error) {
 		return config.Config{}, nil // Backend == ""
@@ -215,7 +202,6 @@ func TestSettingsDiscover_AI_NoBackend(t *testing.T) {
 	}
 }
 
-// TestSettingsDiscover_AI_ValidSuggestion: stub runner returns valid JSON; diff is printed and confirmation prompt appears.
 func TestSettingsDiscover_AI_ValidSuggestion(t *testing.T) {
 	resetDiscoverFlagsOnCleanup(t)
 	home := t.TempDir()
@@ -231,7 +217,6 @@ func TestSettingsDiscover_AI_ValidSuggestion(t *testing.T) {
 	discoverRunFn = stubRunnerWith(`{"skill_path": "` + skillPath + `", "reviewer_agent": "` + agentPath + `"}`)
 	defer func() { discoverRunFn = origRun }()
 
-	// Pass "n" to decline confirmation.
 	out, _, _ := runSettingsDiscoverWithInput(t, home, "n\n", "--ai")
 
 	if !strings.Contains(out, "skill_path") {
@@ -242,14 +227,12 @@ func TestSettingsDiscover_AI_ValidSuggestion(t *testing.T) {
 	}
 }
 
-// TestSettingsDiscover_AI_YesFlag: --yes skips prompt and config file is updated.
 func TestSettingsDiscover_AI_YesFlag(t *testing.T) {
 	resetDiscoverFlagsOnCleanup(t)
 	home := t.TempDir()
 	skillPath, agentPath := makeAITree(t, home)
 
-	// On macOS os.UserConfigDir() returns $HOME/Library/Application Support,
-	// so setting HOME is the right way to redirect config writes in tests.
+	// Why: on macOS os.UserConfigDir() derives from $HOME, so setting HOME redirects config writes.
 	t.Setenv("HOME", home)
 
 	origLoad := discoverConfigLoadFn
@@ -270,7 +253,6 @@ func TestSettingsDiscover_AI_YesFlag(t *testing.T) {
 		t.Errorf("expected 'Applied' in output, got:\n%s", out)
 	}
 
-	// Derive config path the same way config.ConfigPath() does on the current platform.
 	cfgDir, err := os.UserConfigDir()
 	if err != nil {
 		t.Fatalf("UserConfigDir: %v", err)
@@ -292,7 +274,6 @@ func TestSettingsDiscover_AI_YesFlag(t *testing.T) {
 	}
 }
 
-// TestSettingsDiscover_AI_HallucinatedPath: stub returns a path not in scanned set; suggestion is rejected.
 func TestSettingsDiscover_AI_HallucinatedPath(t *testing.T) {
 	resetDiscoverFlagsOnCleanup(t)
 	home := t.TempDir()
@@ -317,7 +298,6 @@ func TestSettingsDiscover_AI_HallucinatedPath(t *testing.T) {
 	}
 }
 
-// TestSettingsDiscover_AI_UnknownKey: stub returns an unknown key; key is skipped.
 func TestSettingsDiscover_AI_UnknownKey(t *testing.T) {
 	resetDiscoverFlagsOnCleanup(t)
 	home := t.TempDir()
@@ -330,11 +310,9 @@ func TestSettingsDiscover_AI_UnknownKey(t *testing.T) {
 	defer func() { discoverConfigLoadFn = origLoad }()
 
 	origRun := discoverRunFn
-	// Returns one valid key and one unknown key.
 	discoverRunFn = stubRunnerWith(`{"skill_path": "` + skillPath + `", "bad_key": "` + skillPath + `"}`)
 	defer func() { discoverRunFn = origRun }()
 
-	// Pass "n" to decline.
 	out, _, _ := runSettingsDiscoverWithInput(t, home, "n\n", "--ai")
 
 	if !strings.Contains(out, "skill_path") {
@@ -345,7 +323,6 @@ func TestSettingsDiscover_AI_UnknownKey(t *testing.T) {
 	}
 }
 
-// TestSettingsDiscover_AI_AlreadyOptimal: suggested values equal current values; prints "Settings are already optimal."
 func TestSettingsDiscover_AI_AlreadyOptimal(t *testing.T) {
 	resetDiscoverFlagsOnCleanup(t)
 	home := t.TempDir()
@@ -353,7 +330,6 @@ func TestSettingsDiscover_AI_AlreadyOptimal(t *testing.T) {
 
 	origLoad := discoverConfigLoadFn
 	discoverConfigLoadFn = func() (config.Config, error) {
-		// Current config already matches what the agent will suggest.
 		return config.Config{Backend: "claude", SkillPath: skillPath, ReviewerAgent: agentPath}, nil
 	}
 	defer func() { discoverConfigLoadFn = origLoad }()
