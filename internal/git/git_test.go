@@ -13,40 +13,40 @@ import (
 
 var defaultTicketRe = regexp.MustCompile(`[A-Z]+-[0-9]+`)
 
-// --- firstLine ---
+// --- SplitSummary ---
 
-func TestFirstLine_Normal(t *testing.T) {
-	result := firstLine("Added authentication middleware\nand updated routes")
-	if result != "Added authentication middleware" {
-		t.Errorf("got %q", result)
+func TestSplitSummary_Normal(t *testing.T) {
+	subject, _ := SplitSummary("Added authentication middleware\nand updated routes")
+	if subject != "Added authentication middleware" {
+		t.Errorf("got %q", subject)
 	}
 }
 
-func TestFirstLine_LeadingBlankLines(t *testing.T) {
-	result := firstLine("\n\n  \nActual content here")
-	if result != "Actual content here" {
-		t.Errorf("got %q", result)
+func TestSplitSummary_LeadingBlankLines(t *testing.T) {
+	subject, _ := SplitSummary("\n\n  \nActual content here")
+	if subject != "Actual content here" {
+		t.Errorf("got %q", subject)
 	}
 }
 
-func TestFirstLine_EmptyString(t *testing.T) {
-	result := firstLine("")
-	if result != "" {
-		t.Errorf("expected empty string, got %q", result)
+func TestSplitSummary_EmptyString(t *testing.T) {
+	subject, _ := SplitSummary("")
+	if subject != defaultIterationSubject {
+		t.Errorf("expected default subject, got %q", subject)
 	}
 }
 
-func TestFirstLine_WhitespaceOnly(t *testing.T) {
-	result := firstLine("   \n  \n  ")
-	if result != "" {
-		t.Errorf("expected empty string for whitespace-only input, got %q", result)
+func TestSplitSummary_WhitespaceOnly(t *testing.T) {
+	subject, _ := SplitSummary("   \n  \n  ")
+	if subject != defaultIterationSubject {
+		t.Errorf("expected default subject for whitespace-only input, got %q", subject)
 	}
 }
 
-func TestFirstLine_SingleLine(t *testing.T) {
-	result := firstLine("  trimmed  ")
-	if result != "trimmed" {
-		t.Errorf("got %q", result)
+func TestSplitSummary_SingleLine(t *testing.T) {
+	subject, _ := SplitSummary("  trimmed  ")
+	if subject != "trimmed" {
+		t.Errorf("got %q", subject)
 	}
 }
 
@@ -535,6 +535,92 @@ func TestHead_ReturnsCommitHash(t *testing.T) {
 
 // --- Checkout error path ---
 
+// --- CommitPolish ---
+
+func TestCommitPolish_SubjectAndTrailer(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "polished")
+
+	if err := CommitPolish("Refactor: tighten comments", ""); err != nil {
+		t.Fatalf("CommitPolish: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	lines := strings.Split(msg, "\n")
+	if lines[0] != "Refactor: tighten comments" {
+		t.Errorf("subject = %q, want %q", lines[0], "Refactor: tighten comments")
+	}
+	if !strings.Contains(msg, "looper-polish: true") {
+		t.Errorf("commit message missing looper-polish trailer; full message:\n%s", msg)
+	}
+	if strings.Contains(msg, "looper-iteration:") {
+		t.Errorf("polish commit must not have looper-iteration trailer; full message:\n%s", msg)
+	}
+}
+
+func TestCommitPolish_WithBody(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "polished with body")
+
+	subject := "Refactor: apply linters"
+	body := "Ran go fmt and go vet; fixed alignment in config.go"
+	if err := CommitPolish(subject, body); err != nil {
+		t.Fatalf("CommitPolish: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	if !strings.HasPrefix(msg, subject) {
+		t.Errorf("subject = %q, want prefix %q", msg, subject)
+	}
+	if !strings.Contains(msg, body) {
+		t.Errorf("commit message missing body %q; full message:\n%s", body, msg)
+	}
+	if !strings.Contains(msg, "looper-polish: true") {
+		t.Errorf("commit message missing looper-polish trailer; full message:\n%s", msg)
+	}
+}
+
+func TestCommitPolish_EmptySummaryFallsBack(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "polish fallback")
+
+	if err := CommitPolish("", ""); err != nil {
+		t.Fatalf("CommitPolish: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	lines := strings.Split(msg, "\n")
+	if lines[0] != defaultPolishSubject {
+		t.Errorf("subject = %q, want %q", lines[0], defaultPolishSubject)
+	}
+}
+
+func TestCommitPolish_NoChanges(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	before := countCommits(t)
+
+	if err := CommitPolish("Refactor: nothing", ""); err != nil {
+		t.Fatalf("CommitPolish: %v", err)
+	}
+
+	after := countCommits(t)
+	if after != before {
+		t.Errorf("commit count: got %d, want %d (no new commit expected when no changes)", after, before)
+	}
+}
+
 func TestCheckout_NonexistentBranch(t *testing.T) {
 	cleanup := initTempRepo(t)
 	defer cleanup()
@@ -544,5 +630,64 @@ func TestCheckout_NonexistentBranch(t *testing.T) {
 	err := Checkout("branch-that-does-not-exist")
 	if err == nil {
 		t.Fatal("Checkout(nonexistent) returned nil, want error")
+	}
+}
+
+// --- CommitPolishWIP ---
+
+func TestCommitPolishWIP_MessageAndTrailer(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "wip polish content")
+
+	if err := CommitPolishWIP(); err != nil {
+		t.Fatalf("CommitPolishWIP: %v", err)
+	}
+
+	msg := getLastCommitMessage(t)
+	lines := strings.Split(msg, "\n")
+	if lines[0] != "WIP: polish timeout" {
+		t.Errorf("subject = %q, want %q", lines[0], "WIP: polish timeout")
+	}
+	if !strings.Contains(msg, "looper-polish: true") {
+		t.Errorf("commit message missing looper-polish trailer; full message:\n%s", msg)
+	}
+	if strings.Contains(msg, "Iteration") {
+		t.Errorf("CommitPolishWIP commit must not contain 'Iteration'; full message:\n%s", msg)
+	}
+}
+
+func TestCommitPolishWIP_NoChanges(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	before := countCommits(t)
+
+	if err := CommitPolishWIP(); err != nil {
+		t.Fatalf("CommitPolishWIP: %v", err)
+	}
+
+	after := countCommits(t)
+	if after != before {
+		t.Errorf("commit count: got %d, want %d (no new commit expected when no changes)", after, before)
+	}
+}
+
+func TestCommitPolishWIP_DoesNotTriggerHasIterationWork(t *testing.T) {
+	cleanup := initTempRepo(t)
+	defer cleanup()
+
+	makeCommit(t, "initial commit")
+	writeFile(t, "change.txt", "wip polish content")
+
+	if err := CommitPolishWIP(); err != nil {
+		t.Fatalf("CommitPolishWIP: %v", err)
+	}
+
+	if HasIterationWork() {
+		t.Error("HasIterationWork() = true after CommitPolishWIP — polish WIP must not be counted as iteration work")
 	}
 }

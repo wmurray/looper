@@ -19,8 +19,7 @@ const (
 	repoConfigFile = ".looper.json"
 )
 
-// minTimeout is the minimum valid timeout in seconds.
-// Values below this are treated as absent/unset in both global and repo configs.
+// Gotcha: values below this are treated as absent/unset in both Load and applyRepoOverlay.
 const minTimeout = 10
 
 type Defaults struct {
@@ -36,6 +35,8 @@ type Config struct {
 	TicketPattern string   `json:"ticket_pattern"`
 	TrustedDirs   []string `json:"trusted_dirs,omitempty"`
 	LinearAPIKey  string   `json:"linear_api_key,omitempty"`
+	PolishAgent   string   `json:"polish_agent,omitempty"`
+	PolishCmds    []string `json:"polish_cmds,omitempty"`
 }
 
 var defaultConfig = Config{
@@ -76,7 +77,6 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("invalid config file: %w", err)
 	}
 
-	// Fill in zero values with defaults
 	if cfg.Backend == "" {
 		cfg.Backend = defaultConfig.Backend
 	}
@@ -99,10 +99,7 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-// applyRepoOverlay copies non-zero fields from src onto dst, returning the
-// updated dst and a list of dot-notation keys that were applied.
-// TrustedDirs is intentionally excluded: allowing a repo config to grant
-// itself trust would undermine the security model.
+// Why: TrustedDirs is excluded — allowing a repo config to grant itself trust would undermine the security model.
 func applyRepoOverlay(dst, src Config) (Config, []string) {
 	var keys []string
 	if src.Backend != "" {
@@ -134,6 +131,14 @@ func applyRepoOverlay(dst, src Config) (Config, []string) {
 		dst.LinearAPIKey = src.LinearAPIKey
 		keys = append(keys, "linear_api_key")
 	}
+	if src.PolishAgent != "" {
+		dst.PolishAgent = src.PolishAgent
+		keys = append(keys, "polish_agent")
+	}
+	if len(src.PolishCmds) > 0 {
+		dst.PolishCmds = src.PolishCmds
+		keys = append(keys, "polish_cmds")
+	}
 	return dst, keys
 }
 
@@ -149,7 +154,6 @@ func LoadWithRepo() (Config, string, []string, error) {
 
 	root, err := git.RepoRoot()
 	if err != nil {
-		// Not in a git repo — no repo config to apply.
 		return cfg, "", nil, nil
 	}
 	repoPath := filepath.Join(root, repoConfigFile)
@@ -210,8 +214,12 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.TicketPattern, nil
 	case "linear_api_key":
 		return cfg.LinearAPIKey, nil
+	case "polish_agent":
+		return cfg.PolishAgent, nil
+	case "polish_cmds":
+		return strings.Join(cfg.PolishCmds, ", "), nil
 	default:
-		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key)", key)
+		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds)", key)
 	}
 }
 
@@ -246,8 +254,23 @@ func Set(cfg Config, key, value string) (Config, error) {
 		cfg.TicketPattern = value
 	case "linear_api_key":
 		cfg.LinearAPIKey = value
+	case "polish_agent":
+		cfg.PolishAgent = value
+	case "polish_cmds":
+		parts := strings.Split(value, ",")
+		var cmds []string
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				cmds = append(cmds, p)
+			}
+		}
+		if len(cmds) == 0 {
+			return cfg, fmt.Errorf("polish_cmds must contain at least one non-empty command")
+		}
+		cfg.PolishCmds = cmds
 	default:
-		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key)", key)
+		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds)", key)
 	}
 	return cfg, nil
 }

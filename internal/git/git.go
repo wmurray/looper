@@ -12,6 +12,8 @@ import (
 // defaultIterationSubject is used when the agent returns an empty summary.
 const defaultIterationSubject = "Apply iteration changes"
 
+// defaultPolishSubject is used when the polish agent returns an empty summary.
+const defaultPolishSubject = "Refactor: polish pass"
 
 func run(args ...string) (string, error) {
 	out, err := exec.Command("git", args...).Output()
@@ -109,7 +111,7 @@ func CommitIteration(n int, summary string) error {
 		return fmt.Errorf("git add failed: %w", err)
 	}
 
-	subject, body := splitSummary(summary)
+	subject, body := SplitSummary(summary)
 	trailer := fmt.Sprintf("looper-iteration: %d", n)
 	args := []string{"commit", "--quiet", "-m", subject}
 	if body != "" {
@@ -123,8 +125,10 @@ func CommitIteration(n int, summary string) error {
 	return nil
 }
 
+// SplitSummary splits a multi-line agent output into (subject, body).
+// The subject is the first non-empty line; body is the remainder.
 // Gotcha: empty or whitespace-only summary returns "Apply iteration changes".
-func splitSummary(summary string) (subject, body string) {
+func SplitSummary(summary string) (subject, body string) {
 	lines := strings.Split(summary, "\n")
 	subjectIdx := -1
 	for i, line := range lines {
@@ -141,17 +145,58 @@ func splitSummary(summary string) (subject, body string) {
 	return subject, body
 }
 
-func firstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return line
-		}
+// CommitPolish commits all changes for a polish pass.
+// Uses a "looper-polish: true" trailer (distinct from looper-iteration so history is queryable).
+// Gotcha: empty summary falls back to "Refactor: polish pass".
+func CommitPolish(subject, body string) error {
+	diff := Diff()
+	status, _ := run("status", "--porcelain")
+	if strings.TrimSpace(diff) == "" && strings.TrimSpace(status) == "" {
+		return nil
 	}
-	return ""
+
+	if _, err := exec.Command("git", "add", "-A").Output(); err != nil {
+		return fmt.Errorf("git add failed: %w", err)
+	}
+
+	if strings.TrimSpace(subject) == "" {
+		subject = defaultPolishSubject
+	}
+	subject = strings.TrimSpace(subject)
+	body = strings.TrimSpace(body)
+
+	args := []string{"commit", "--quiet", "-m", subject}
+	if body != "" {
+		args = append(args, "-m", body)
+	}
+	args = append(args, "-m", "looper-polish: true")
+
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit: %w\n%s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
-// CommitWIP commits with a WIP message (used on timeout/failure).
+// CommitPolishWIP commits with a "WIP: polish timeout" message.
+// Uses the looper-polish: true trailer so it is queryable but does NOT
+// match HasIterationWork()'s "^WIP: Iteration" grep pattern.
+func CommitPolishWIP() error {
+	status, _ := run("status", "--porcelain")
+	if strings.TrimSpace(status) == "" {
+		return nil
+	}
+
+	if _, err := exec.Command("git", "add", "-A").Output(); err != nil {
+		return fmt.Errorf("git add failed: %w", err)
+	}
+
+	args := []string{"commit", "--quiet", "-m", "WIP: polish timeout", "-m", "looper-polish: true"}
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit: %w\n%s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func CommitWIP(iteration int, phase string) error {
 	status, _ := run("status", "--porcelain")
 	if strings.TrimSpace(status) == "" {
