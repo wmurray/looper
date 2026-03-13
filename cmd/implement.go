@@ -14,6 +14,7 @@ import (
 	"github.com/willmurray/looper/internal/config"
 	"github.com/willmurray/looper/internal/git"
 	"github.com/willmurray/looper/internal/guards"
+	"github.com/willmurray/looper/internal/plan"
 	"github.com/willmurray/looper/internal/progress"
 	"github.com/willmurray/looper/internal/runner"
 	"github.com/willmurray/looper/internal/signals"
@@ -125,6 +126,27 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	}
 	if _, err := os.Stat(planFile); err != nil {
 		return fmt.Errorf("plan file not found: %s", planFile)
+	}
+
+	planBytes, err := os.ReadFile(planFile)
+	if err != nil {
+		return fmt.Errorf("could not read plan file: %w", err)
+	}
+	planErrs := plan.Validate(string(planBytes))
+	var fatalMsgs []string
+	for _, ve := range planErrs {
+		if ve.Fatal {
+			fatalMsgs = append(fatalMsgs, ve.Message)
+		} else {
+			ui.Warn("%s", ve.Message)
+		}
+	}
+	if len(fatalMsgs) > 0 {
+		msg := fmt.Sprintf("plan file is not ready to implement (%s):\n", planFile)
+		for _, m := range fatalMsgs {
+			msg += "  • " + m + "\n"
+		}
+		return fmt.Errorf("%s", strings.TrimRight(msg, "\n"))
 	}
 
 	skillPath := config.ExpandPath(cfg.SkillPath)
