@@ -17,6 +17,7 @@ import (
 	"github.com/willmurray/looper/internal/notify"
 	"github.com/willmurray/looper/internal/plan"
 	"github.com/willmurray/looper/internal/progress"
+	"github.com/willmurray/looper/internal/runlog"
 	"github.com/willmurray/looper/internal/runner"
 	"github.com/willmurray/looper/internal/signals"
 	looperstate "github.com/willmurray/looper/internal/state"
@@ -254,6 +255,20 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 	return implementLoopFrom(ctx, cfg, ticket, planFile, cycles, timeout, retries, reviewEvery, stream, 1, &guards.State{}, time.Now().UTC())
 }
 
+// appendRunLog writes a RunEntry to the append-only run log best-effort (errors are discarded).
+func appendRunLog(ticket, outcome string, cyclesUsed, cyclesMax int, guardEvents []string, lastReviewerMsg string, startedAt time.Time) {
+	_ = runlog.Append(runlog.RunEntry{
+		Ticket:          ticket,
+		StartedAt:       startedAt.Format(time.RFC3339),
+		FinishedAt:      time.Now().UTC().Format(time.RFC3339),
+		Outcome:         outcome,
+		CyclesUsed:      cyclesUsed,
+		CyclesMax:       cyclesMax,
+		GuardEvents:     guardEvents,
+		LastReviewerMsg: lastReviewerMsg,
+	})
+}
+
 // implementLoopFrom is the shared loop body used by implementLoop and resumeCmd.
 // startCycle lets resume skip already-completed cycles; g carries restored guard
 // counters so thrash/stuck detection is continuous across resumptions.
@@ -279,6 +294,9 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 	fmt.Println()
 
 	totalIterations := startCycle - 1
+
+	var guardEvents []string
+	var lastReviewerOutput string
 
 	jobsDoneRe := regexp.MustCompile(`(?i)job.*s\s+done`)
 
@@ -316,6 +334,7 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 			ui.Alert("Interrupted — committing partial work")
 			git.CommitWIP(i, "execution")
 			_ = pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+			appendRunLog(ticket, "interrupted", i, cycles, guardEvents, lastReviewerOutput, startedAt)
 			return fmt.Errorf("interrupted")
 		}
 		if execSpinner != nil {
@@ -326,11 +345,13 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 			_ = pw.WriteGuardTriggered(fmt.Sprintf("Execution timeout after %ds", timeout))
 			ui.Alert("Execution agent timeout")
 			git.CommitWIP(i, "execution")
+			appendRunLog(ticket, "exec-timeout", i, cycles, guardEvents, lastReviewerOutput, startedAt)
 			return fmt.Errorf("execution timed out at iteration %d", i)
 		}
 		if execResult.ExitCode != 0 {
 			_ = pw.WriteGuardTriggered(fmt.Sprintf("Execution failed (exit code %d)", execResult.ExitCode))
 			ui.Error("Execution failed (code %d)", execResult.ExitCode)
+			appendRunLog(ticket, "exec-failed", i, cycles, guardEvents, lastReviewerOutput, startedAt)
 			return fmt.Errorf("execution agent failed at iteration %d", i)
 		}
 
@@ -341,12 +362,15 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 		if g1.Warning {
 			_ = pw.WriteGuardAlert(g1.Message)
 			ui.Warn("%s", g1.Message)
+			guardEvents = append(guardEvents, g1.Message)
 		}
 		if g1.Triggered {
 			_ = pw.WriteGuardTriggered(g1.Message)
 			ui.Alert("%s", g1.Message)
 			ui.Alert("Aborting.")
 			_ = pw.WriteSummary("aborted — no changes", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+			guardEvents = append(guardEvents, g1.Message)
+			appendRunLog(ticket, "aborted-no-changes", i, cycles, guardEvents, lastReviewerOutput, startedAt)
 			return fmt.Errorf("guard triggered: %s", g1.Message)
 		}
 
@@ -379,6 +403,7 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 				ui.Alert("Interrupted — committing partial work")
 				git.CommitWIP(i, "review")
 				_ = pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+				appendRunLog(ticket, "interrupted", i, cycles, guardEvents, lastReviewerOutput, startedAt)
 				return fmt.Errorf("interrupted")
 			}
 			if reviewSpinner != nil {
@@ -389,26 +414,32 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 				_ = pw.WriteGuardTriggered(fmt.Sprintf("Review timeout after %ds", timeout))
 				ui.Alert("Review agent timeout")
 				git.CommitWIP(i, "review")
+				appendRunLog(ticket, "review-timeout", i, cycles, guardEvents, lastReviewerOutput, startedAt)
 				return fmt.Errorf("review timed out at iteration %d", i)
 			}
 			if reviewResult.ExitCode != 0 {
 				_ = pw.WriteGuardTriggered(fmt.Sprintf("Review failed (exit code %d)", reviewResult.ExitCode))
 				ui.Error("Review failed (code %d)", reviewResult.ExitCode)
+				appendRunLog(ticket, "review-failed", i, cycles, guardEvents, lastReviewerOutput, startedAt)
 				return fmt.Errorf("review agent failed at iteration %d", i)
 			}
 
+			lastReviewerOutput = reviewResult.Output
 			_ = pw.WriteReview(reviewResult.Output)
 
 			g2 := guardState.CheckRepeatedIssues(reviewResult.Output)
 			if g2.Warning {
 				_ = pw.WriteGuardAlert(g2.Message)
 				ui.Warn("%s", g2.Message)
+				guardEvents = append(guardEvents, g2.Message)
 			}
 			if g2.Triggered {
 				_ = pw.WriteGuardTriggered(g2.Message)
 				ui.Alert("%s", g2.Message)
 				ui.Alert("Aborting.")
 				_ = pw.WriteSummary("aborted — repeated issues", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+				guardEvents = append(guardEvents, g2.Message)
+				appendRunLog(ticket, "aborted-repeated-issues", i, cycles, guardEvents, lastReviewerOutput, startedAt)
 				return fmt.Errorf("guard triggered: %s", g2.Message)
 			}
 
@@ -438,6 +469,7 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 				_ = pw.WriteSuccess(i)
 				_ = pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
 				_ = looperstate.Delete(ticket)
+				appendRunLog(ticket, "complete", i, cycles, guardEvents, lastReviewerOutput, startedAt)
 				fmt.Println()
 				ui.Success("👷 Job's done - completed in %d of %d iterations", i, cycles)
 				return nil
@@ -471,6 +503,7 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 	ui.Alert("Max cycles (%d) reached without approval", cycles)
 	_ = pw.WriteSummary("max cycles reached", totalIterations, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(totalIterations))
 	_ = looperstate.Delete(ticket)
+	appendRunLog(ticket, "max-cycles", totalIterations, cycles, guardEvents, lastReviewerOutput, startedAt)
 
 	return fmt.Errorf("max cycles (%d) reached without completion", cycles)
 }

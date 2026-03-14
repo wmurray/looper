@@ -29,4 +29,5 @@ func init() {
 	rootCmd.AddCommand(settingsCmd)
 	rootCmd.AddCommand(cleanCmd)
 	rootCmd.AddCommand(polishCmd)
+	rootCmd.AddCommand(reportCmd)
 }
