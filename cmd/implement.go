@@ -19,6 +19,7 @@ import (
 	"github.com/willmurray/looper/internal/progress"
 	"github.com/willmurray/looper/internal/runner"
 	"github.com/willmurray/looper/internal/signals"
+	looperstate "github.com/willmurray/looper/internal/state"
 	"github.com/willmurray/looper/internal/ui"
 )
 
@@ -245,6 +246,17 @@ func shouldReview(i, cycles, reviewEvery int) bool {
 // implementLoop runs the implement/review agent cycle. It is called by both
 // runImplement and runStart after all preflight checks have passed.
 func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout, retries, reviewEvery int, stream bool) error {
+	// Invariant: stale state file from a prior interrupted run must not bleed into a fresh run.
+	if err := looperstate.Delete(ticket); err == nil {
+		ui.Warn("Deleted stale state file — starting fresh")
+	}
+	return implementLoopFrom(ctx, cfg, ticket, planFile, cycles, timeout, retries, reviewEvery, stream, 1, &guards.State{}, time.Now().UTC())
+}
+
+// implementLoopFrom is the shared loop body used by implementLoop and resumeCmd.
+// startCycle lets resume skip already-completed cycles; g carries restored guard
+// counters so thrash/stuck detection is continuous across resumptions.
+func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout, retries, reviewEvery int, stream bool, startCycle int, guardState *guards.State, startedAt time.Time) error {
 	skillPath := config.ExpandPath(cfg.SkillPath)
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
 
@@ -255,20 +267,21 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 
 	progressFile := ticket + "_PROGRESS.md"
 	pw := progress.New(progressFile, ticket, planFile, cycles, timeout)
-	if err := pw.WriteHeader(); err != nil {
-		return fmt.Errorf("could not create progress file: %w", err)
+	if startCycle == 1 {
+		if err := pw.WriteHeader(); err != nil {
+			return fmt.Errorf("could not create progress file: %w", err)
+		}
 	}
 
 	ui.Header("Starting loop: %s", ticket)
 	ui.Header("Max cycles: %d | Timeout per iteration: %ds | Backend: %s", cycles, timeout, cfg.Backend)
 	fmt.Println()
 
-	guardState := &guards.State{}
-	totalIterations := 0
+	totalIterations := startCycle - 1
 
 	jobsDoneRe := regexp.MustCompile(`(?i)job.*s\s+done`)
 
-	for i := 1; i <= cycles; i++ {
+	for i := startCycle; i <= cycles; i++ {
 		iterStart := time.Now()
 		totalIterations = i
 
@@ -407,9 +420,23 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 				ui.Phase("[%s] Committed iteration %d", time.Now().Format("15:04:05"), i)
 			}
 
+			// --- PERSIST STATE (best-effort) ---
+			_ = looperstate.Write(looperstate.State{
+				Ticket:         ticket,
+				PlanFile:       planFile,
+				CyclesTotal:    cycles,
+				CycleCompleted: i,
+				ThrashCount:    guardState.ThrashCount,
+				StuckCount:     guardState.StuckCount,
+				PrevIssues:     guardState.PrevIssueHash,
+				StartedAt:      startedAt,
+				UpdatedAt:      time.Now().UTC(),
+			})
+
 			if jobsDoneRe.MatchString(reviewResult.Output) {
 				_ = pw.WriteSuccess(i)
 				_ = pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+				_ = looperstate.Delete(ticket)
 				fmt.Println()
 				ui.Success("👷 Job's done - completed in %d of %d iterations", i, cycles)
 				return nil
@@ -422,6 +449,19 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 			} else {
 				ui.Phase("[%s] Committed iteration %d", time.Now().Format("15:04:05"), i)
 			}
+
+			// --- PERSIST STATE (best-effort) ---
+			_ = looperstate.Write(looperstate.State{
+				Ticket:         ticket,
+				PlanFile:       planFile,
+				CyclesTotal:    cycles,
+				CycleCompleted: i,
+				ThrashCount:    guardState.ThrashCount,
+				StuckCount:     guardState.StuckCount,
+				PrevIssues:     guardState.PrevIssueHash,
+				StartedAt:      startedAt,
+				UpdatedAt:      time.Now().UTC(),
+			})
 		}
 
 		fmt.Println()
@@ -429,6 +469,7 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 
 	ui.Alert("Max cycles (%d) reached without approval", cycles)
 	_ = pw.WriteSummary("max cycles reached", totalIterations, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(totalIterations))
+	_ = looperstate.Delete(ticket)
 
 	return fmt.Errorf("max cycles (%d) reached without completion", cycles)
 }

@@ -24,6 +24,7 @@ func Execute() error {
 func init() {
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(implementCmd)
+	rootCmd.AddCommand(resumeCmd)
 	rootCmd.AddCommand(planCmd)
 	rootCmd.AddCommand(settingsCmd)
 	rootCmd.AddCommand(cleanCmd)
