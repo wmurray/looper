@@ -482,7 +482,11 @@ Comment style (mandatory):
 - Remove any comment that restates what the code does, narrates control flow, or explains a name that could be improved by renaming
 - If no comment is needed, write none
 
-Commit your changes following the commit-changes skill at ~/.claude/skills/commit-changes/SKILL.md. Output only the commit message.`, skillPath, planContent, historySection))
+When done, commit your changes:
+- Run: git add -A && git commit -m "<subject>" -m "<body>"
+- Subject line: imperative mood, ≤72 chars, starts with Add/Fix/Refactor/Remove/Update
+- Body (optional): bulleted list of notable changes, one per line
+- Output only the commit message you used (subject + body bullets). Do not narrate the process or ask for confirmation.`, skillPath, planContent, historySection))
 }
 
 func buildReviewPrompt(planContent, progressContent, reviewerAgent string) string {
