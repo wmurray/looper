@@ -6,6 +6,37 @@ import (
 	"github.com/willmurray/looper/internal/progress"
 )
 
+func TestShouldReview(t *testing.T) {
+	tests := []struct {
+		name        string
+		i           int
+		cycles      int
+		reviewEvery int
+		want        bool
+	}{
+		{name: "default cadence reviews every cycle (i=1)", i: 1, cycles: 5, reviewEvery: 1, want: true},
+		{name: "default cadence reviews every cycle (i=3)", i: 3, cycles: 5, reviewEvery: 1, want: true},
+		{name: "every-2 skips mid-interval (i=1)", i: 1, cycles: 5, reviewEvery: 2, want: false},
+		{name: "every-2 reviews on-interval (i=2)", i: 2, cycles: 5, reviewEvery: 2, want: true},
+		{name: "every-2 skips mid-interval (i=3)", i: 3, cycles: 5, reviewEvery: 2, want: false},
+		{name: "every-2 reviews on-interval (i=4)", i: 4, cycles: 5, reviewEvery: 2, want: true},
+		{name: "every-2 reviews final cycle override (i=5)", i: 5, cycles: 5, reviewEvery: 2, want: true},
+		{name: "every-5 reviews when on-interval and final coincide", i: 5, cycles: 5, reviewEvery: 5, want: true},
+		{name: "reviewEvery>cycles reviews final cycle only (i=5)", i: 5, cycles: 5, reviewEvery: 10, want: true},
+		{name: "reviewEvery>cycles skips non-final (i=3)", i: 3, cycles: 5, reviewEvery: 10, want: false},
+		{name: "reviewEvery<=0 treated as always (i=2)", i: 2, cycles: 5, reviewEvery: 0, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldReview(tt.i, tt.cycles, tt.reviewEvery)
+			if got != tt.want {
+				t.Errorf("shouldReview(%d, %d, %d) = %v, want %v", tt.i, tt.cycles, tt.reviewEvery, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLastNRuns(t *testing.T) {
 	sep := progress.RunSeparator
 	header := "# Progress\n\n---\n"
