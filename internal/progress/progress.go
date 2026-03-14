@@ -59,6 +59,10 @@ func (w *Writer) WriteGuardTriggered(msg string) error {
 	return w.append(fmt.Sprintf("⚠ **Guard Triggered**: %s\n\n", msg))
 }
 
+func (w *Writer) WriteRetry(phase string, attempt, maxRetries int, reason string) error {
+	return w.append(fmt.Sprintf("⚠ **Retry**: %s phase, attempt %d of %d — %q\n\n", phase, attempt, maxRetries, reason))
+}
+
 func (w *Writer) WriteIterationTime(secs int64) error {
 	if secs > int64(w.timeoutSec) {
 		return w.append(fmt.Sprintf("⚠ **Guard Alert**: Iteration took %ds (timeout: %ds)\n\n", secs, w.timeoutSec))

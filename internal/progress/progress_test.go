@@ -149,6 +149,32 @@ func TestWriteSummary_Interrupted(t *testing.T) {
 	assertContains(t, content, "Fix issues and rerun")
 }
 
+// --- WriteRetry ---
+
+func TestWriteRetry_AppendsWarningLine(t *testing.T) {
+	w, path := newTestWriter(t)
+	w.WriteHeader()
+	err := w.WriteRetry("execution", 1, 3, "rate limit exceeded")
+	if err != nil {
+		t.Fatalf("WriteRetry error: %v", err)
+	}
+	content := readFile(t, path)
+	assertContains(t, content, "⚠")
+	assertContains(t, content, "Retry")
+	assertContains(t, content, "execution phase")
+	assertContains(t, content, "attempt 1 of 3")
+	assertContains(t, content, `"rate limit exceeded"`)
+}
+
+func TestWriteRetry_IncludesPhaseAndAttempt(t *testing.T) {
+	w, path := newTestWriter(t)
+	w.WriteHeader()
+	w.WriteRetry("review", 2, 5, "overloaded")
+	content := readFile(t, path)
+	assertContains(t, content, "review phase")
+	assertContains(t, content, "attempt 2 of 5")
+}
+
 // --- WriteIterationTime ---
 
 func TestWriteIterationTime_OverTimeout(t *testing.T) {

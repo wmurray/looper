@@ -31,6 +31,7 @@ var (
 	flagReviewer string
 	flagStream   bool
 	flagNotify   bool
+	flagRetries  int
 )
 
 // Safety guarantees:
@@ -68,6 +69,7 @@ func init() {
 	implementCmd.Flags().BoolVarP(&flagYes, "yes", "y", false, "Skip git staging confirmation prompt")
 	implementCmd.Flags().BoolVar(&flagStream, "stream", false, "Stream agent output to the terminal (suppresses spinner)")
 	implementCmd.Flags().BoolVar(&flagNotify, "notify", false, "Send desktop notification when loop completes or aborts")
+	implementCmd.Flags().IntVar(&flagRetries, "retries", -1, "max retries per phase on transient errors (0 = no retries; default from config)")
 }
 
 func runImplement(cmd *cobra.Command, args []string) error {
@@ -83,6 +85,13 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	timeout := cfg.Defaults.Timeout
 	if flagTimeout > 0 {
 		timeout = flagTimeout
+	}
+	retries := 0
+	if cfg.Retries != nil {
+		retries = *cfg.Retries
+	}
+	if flagRetries >= 0 {
+		retries = flagRetries
 	}
 	planFile := flagPlan
 
@@ -205,7 +214,7 @@ func runImplement(cmd *cobra.Command, args []string) error {
 
 	doNotify := cfg.Notify || flagNotify
 	notifyTitle := "Looper — " + ticket
-	err = implementLoop(ctx, cfg, ticket, planFile, cycles, timeout, flagStream)
+	err = implementLoop(ctx, cfg, ticket, planFile, cycles, timeout, retries, flagStream)
 	if err != nil {
 		notify.Send(doNotify, cfg.NotifyWebhook, notifyTitle, "Loop aborted: "+err.Error())
 	} else {
@@ -216,7 +225,7 @@ func runImplement(cmd *cobra.Command, args []string) error {
 
 // implementLoop runs the implement/review agent cycle. It is called by both
 // runImplement and runStart after all preflight checks have passed.
-func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout int, stream bool) error {
+func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout, retries int, stream bool) error {
 	skillPath := config.ExpandPath(cfg.SkillPath)
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
 
@@ -254,17 +263,17 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		}
 		headBefore := git.Head()
 		phaseMsg := fmt.Sprintf("[%s] Executing plan...", time.Now().Format("15:04:05"))
-		var execResultCh <-chan runner.Result
 		var execSpinner *ui.Spinner
+		execPrompt := buildExecPrompt(string(planContent), string(execProgressBytes), skillPath)
+		var execResult runner.Result
 		if stream {
 			fmt.Fprintln(os.Stderr, phaseMsg)
-			execResultCh = runner.RunStreamAsync(ctx, buildExecPrompt(string(planContent), string(execProgressBytes), skillPath), timeout, cfg.Backend, os.Stdout)
+			execResult = runner.RunWithRetry(ctx, runner.RunStreamAsyncFn(os.Stdout), execPrompt, timeout, cfg.Backend, retries, "execution", pw, ui.Warn)
 		} else {
 			execSpinner = ui.NewSpinner(phaseMsg)
 			execSpinner.Start()
-			execResultCh = runner.RunAsync(ctx, buildExecPrompt(string(planContent), string(execProgressBytes), skillPath), timeout, cfg.Backend)
+			execResult = runner.RunWithRetry(ctx, runner.RunAsyncFn(), execPrompt, timeout, cfg.Backend, retries, "execution", pw, ui.Warn)
 		}
-		execResult := <-execResultCh
 
 		if execResult.Cancelled {
 			if execSpinner != nil {
@@ -314,17 +323,17 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 			return fmt.Errorf("could not read progress file before review at iteration %d: %w", i, err)
 		}
 		reviewMsg := fmt.Sprintf("[%s] Reviewing...", time.Now().Format("15:04:05"))
-		var reviewResultCh <-chan runner.Result
 		var reviewSpinner *ui.Spinner
+		reviewPrompt := buildReviewPrompt(string(planContent), string(reviewProgressBytes), reviewerAgent)
+		var reviewResult runner.Result
 		if stream {
 			fmt.Fprintln(os.Stderr, reviewMsg)
-			reviewResultCh = runner.RunStreamAsync(ctx, buildReviewPrompt(string(planContent), string(reviewProgressBytes), reviewerAgent), timeout, cfg.Backend, os.Stdout)
+			reviewResult = runner.RunWithRetry(ctx, runner.RunStreamAsyncFn(os.Stdout), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
 		} else {
 			reviewSpinner = ui.NewSpinner(reviewMsg)
 			reviewSpinner.Start()
-			reviewResultCh = runner.RunAsync(ctx, buildReviewPrompt(string(planContent), string(reviewProgressBytes), reviewerAgent), timeout, cfg.Backend)
+			reviewResult = runner.RunWithRetry(ctx, runner.RunAsyncFn(), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
 		}
-		reviewResult := <-reviewResultCh
 
 		if reviewResult.Cancelled {
 			if reviewSpinner != nil {
