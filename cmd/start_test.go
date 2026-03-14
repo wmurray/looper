@@ -1,6 +1,54 @@
 package cmd
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
+
+func TestResolveResumeState_HasIterations(t *testing.T) {
+	t.Parallel()
+	state := resolveResumeState(
+		func() bool { return true },
+		func() error { return nil },
+	)
+	if state != resumeHasIterations {
+		t.Errorf("got %v, want resumeHasIterations", state)
+	}
+}
+
+func TestResolveResumeState_PlanExists(t *testing.T) {
+	t.Parallel()
+	state := resolveResumeState(
+		func() bool { return false },
+		func() error { return nil },
+	)
+	if state != resumePlanExists {
+		t.Errorf("got %v, want resumePlanExists", state)
+	}
+}
+
+func TestResolveResumeState_NoPlan(t *testing.T) {
+	t.Parallel()
+	state := resolveResumeState(
+		func() bool { return false },
+		func() error { return errors.New("not found") },
+	)
+	if state != resumeNoPlan {
+		t.Errorf("got %v, want resumeNoPlan", state)
+	}
+}
+
+// Gotcha: HasIterationWork must take priority so a deleted plan file doesn't hide prior loop commits.
+func TestResolveResumeState_IterationsTakesPriority(t *testing.T) {
+	t.Parallel()
+	state := resolveResumeState(
+		func() bool { return true },
+		func() error { return errors.New("gone") },
+	)
+	if state != resumeHasIterations {
+		t.Errorf("got %v, want resumeHasIterations even when plan missing", state)
+	}
+}
 
 func TestStartCmd_Flags(t *testing.T) {
 	t.Parallel()

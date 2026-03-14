@@ -247,7 +247,8 @@ func shouldReview(i, cycles, reviewEvery int) bool {
 // runImplement and runStart after all preflight checks have passed.
 func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout, retries, reviewEvery int, stream bool) error {
 	// Invariant: stale state file from a prior interrupted run must not bleed into a fresh run.
-	if err := looperstate.Delete(ticket); err == nil {
+	if _, statErr := os.Stat(looperstate.Path(ticket)); statErr == nil {
+		_ = looperstate.Delete(ticket)
 		ui.Warn("Deleted stale state file — starting fresh")
 	}
 	return implementLoopFrom(ctx, cfg, ticket, planFile, cycles, timeout, retries, reviewEvery, stream, 1, &guards.State{}, time.Now().UTC())

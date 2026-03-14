@@ -38,7 +38,7 @@ func Write(s State) error {
 		return fmt.Errorf("state.Write: write temp: %w", err)
 	}
 	if err := os.Rename(tmp, Path(s.Ticket)); err != nil {
-		_ = os.Remove(tmp)
+		_ = os.Remove(tmp) // Gotcha: best-effort cleanup; rename failure is the real error.
 		return fmt.Errorf("state.Write: rename: %w", err)
 	}
 	return nil

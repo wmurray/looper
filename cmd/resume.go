@@ -31,6 +31,10 @@ func resumeCore(
 		return fmt.Errorf("reading state for %s: %w", ticket, err)
 	}
 
+	if s.CycleCompleted >= s.CyclesTotal {
+		return fmt.Errorf("loop already completed all %d cycles for %s", s.CyclesTotal, ticket)
+	}
+
 	ui.Header("Resuming %s from cycle %d/%d", ticket, s.CycleCompleted+1, s.CyclesTotal)
 	fmt.Println()
 

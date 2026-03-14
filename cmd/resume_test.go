@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -9,53 +8,6 @@ import (
 	"github.com/willmurray/looper/internal/guards"
 	looperstate "github.com/willmurray/looper/internal/state"
 )
-
-// resolveResumeState takes injected predicates so tests need no git repo or filesystem.
-
-func TestResolveResumeState_HasIterations(t *testing.T) {
-	t.Parallel()
-	state := resolveResumeState(
-		func() bool { return true }, // hasWork: loop already ran
-		func() error { return nil }, // plan exists (irrelevant when work found)
-	)
-	if state != resumeHasIterations {
-		t.Errorf("got %v, want resumeHasIterations", state)
-	}
-}
-
-func TestResolveResumeState_PlanExists(t *testing.T) {
-	t.Parallel()
-	state := resolveResumeState(
-		func() bool { return false }, // no iteration work
-		func() error { return nil },  // plan file exists on disk
-	)
-	if state != resumePlanExists {
-		t.Errorf("got %v, want resumePlanExists", state)
-	}
-}
-
-func TestResolveResumeState_NoPlan(t *testing.T) {
-	t.Parallel()
-	state := resolveResumeState(
-		func() bool { return false },    // no iteration work
-		func() error { return errors.New("not found") }, // no plan file
-	)
-	if state != resumeNoPlan {
-		t.Errorf("got %v, want resumeNoPlan", state)
-	}
-}
-
-// HasIterationWork takes priority over plan-file presence.
-func TestResolveResumeState_IterationsTakesPriority(t *testing.T) {
-	t.Parallel()
-	state := resolveResumeState(
-		func() bool { return true },                // work found
-		func() error { return errors.New("gone") }, // plan missing — shouldn't matter
-	)
-	if state != resumeHasIterations {
-		t.Errorf("got %v, want resumeHasIterations even when plan missing", state)
-	}
-}
 
 func TestResumeNoStateFile(t *testing.T) {
 	t.Parallel()
@@ -139,5 +91,29 @@ func TestResumeTicketFromArg(t *testing.T) {
 	)
 	if gotTicket != "IMP-EXPLICIT" {
 		t.Errorf("ticket = %q, want %q", gotTicket, "IMP-EXPLICIT")
+	}
+}
+
+func TestResumeAlreadyComplete(t *testing.T) {
+	t.Parallel()
+	loopCalled := false
+	err := resumeCore("IMP-99",
+		func(ticket string) (looperstate.State, error) {
+			return looperstate.State{
+				Ticket:         "IMP-99",
+				CyclesTotal:    3,
+				CycleCompleted: 3,
+			}, nil
+		},
+		func(startCycle int, g guards.State) error {
+			loopCalled = true
+			return nil
+		},
+	)
+	if err == nil {
+		t.Fatal("expected error when loop already completed, got nil")
+	}
+	if loopCalled {
+		t.Error("loop should not be called when all cycles already completed")
 	}
 }
