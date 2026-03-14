@@ -23,15 +23,16 @@ import (
 )
 
 var (
-	flagCycles   int
-	flagPlan     string
-	flagTimeout  int
-	flagDryRun   bool
-	flagYes      bool
-	flagReviewer string
-	flagStream   bool
-	flagNotify   bool
-	flagRetries  int
+	flagCycles      int
+	flagPlan        string
+	flagTimeout     int
+	flagDryRun      bool
+	flagYes         bool
+	flagReviewer    string
+	flagStream      bool
+	flagNotify      bool
+	flagRetries     int
+	flagReviewEvery int
 )
 
 // Safety guarantees:
@@ -70,6 +71,7 @@ func init() {
 	implementCmd.Flags().BoolVar(&flagStream, "stream", false, "Stream agent output to the terminal (suppresses spinner)")
 	implementCmd.Flags().BoolVar(&flagNotify, "notify", false, "Send desktop notification when loop completes or aborts")
 	implementCmd.Flags().IntVar(&flagRetries, "retries", -1, "max retries per phase on transient errors (0 = no retries; default from config)")
+	implementCmd.Flags().IntVar(&flagReviewEvery, "review-every", -1, "run reviewer every N cycles (1 = every cycle; default from config)")
 }
 
 func runImplement(cmd *cobra.Command, args []string) error {
@@ -92,6 +94,13 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	}
 	if flagRetries >= 0 {
 		retries = flagRetries
+	}
+	reviewEvery := 1
+	if cfg.ReviewEvery != nil {
+		reviewEvery = *cfg.ReviewEvery
+	}
+	if flagReviewEvery >= 1 {
+		reviewEvery = flagReviewEvery
 	}
 	planFile := flagPlan
 
@@ -206,6 +215,7 @@ func runImplement(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Backend:        %s\n", cfg.Backend)
 		fmt.Printf("  Skill path:     %s\n", skillPath)
 		fmt.Printf("  Reviewer agent: %s\n", reviewerAgent)
+		fmt.Printf("  Review every:   %d\n", reviewEvery)
 		return nil
 	}
 
@@ -214,7 +224,7 @@ func runImplement(cmd *cobra.Command, args []string) error {
 
 	doNotify := cfg.Notify || flagNotify
 	notifyTitle := "Looper — " + ticket
-	err = implementLoop(ctx, cfg, ticket, planFile, cycles, timeout, retries, flagStream)
+	err = implementLoop(ctx, cfg, ticket, planFile, cycles, timeout, retries, reviewEvery, flagStream)
 	if err != nil {
 		notify.Send(doNotify, cfg.NotifyWebhook, notifyTitle, "Loop aborted: "+err.Error())
 	} else {
@@ -223,9 +233,18 @@ func runImplement(cmd *cobra.Command, args []string) error {
 	return err
 }
 
+// shouldReview returns true when the review phase should run for iteration i.
+// The final cycle always triggers a review so the loop never ends without feedback.
+func shouldReview(i, cycles, reviewEvery int) bool {
+	if reviewEvery <= 1 {
+		return true
+	}
+	return i == cycles || i%reviewEvery == 0
+}
+
 // implementLoop runs the implement/review agent cycle. It is called by both
 // runImplement and runStart after all preflight checks have passed.
-func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout, retries int, stream bool) error {
+func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout, retries, reviewEvery int, stream bool) error {
 	skillPath := config.ExpandPath(cfg.SkillPath)
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
 
@@ -317,80 +336,92 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 			return fmt.Errorf("guard triggered: %s", g1.Message)
 		}
 
-		// Why: re-read after execution so the reviewer sees the latest output.
-		reviewProgressBytes, err := os.ReadFile(progressFile)
-		if err != nil {
-			return fmt.Errorf("could not read progress file before review at iteration %d: %w", i, err)
-		}
-		reviewMsg := fmt.Sprintf("[%s] Reviewing...", time.Now().Format("15:04:05"))
-		var reviewSpinner *ui.Spinner
-		reviewPrompt := buildReviewPrompt(string(planContent), lastNRuns(string(reviewProgressBytes), 2), reviewerAgent)
-		var reviewResult runner.Result
-		if stream {
-			fmt.Fprintln(os.Stderr, reviewMsg)
-			reviewResult = runner.RunWithRetry(ctx, runner.RunStreamAsyncFn(os.Stdout), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
-		} else {
-			reviewSpinner = ui.NewSpinner(reviewMsg)
-			reviewSpinner.Start()
-			reviewResult = runner.RunWithRetry(ctx, runner.RunAsyncFn(), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
-		}
-
-		if reviewResult.Cancelled {
-			if reviewSpinner != nil {
-				reviewSpinner.Abort()
-			}
-			fmt.Println()
-			ui.Alert("Interrupted — committing partial work")
-			git.CommitWIP(i, "review")
-			_ = pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
-			return fmt.Errorf("interrupted")
-		}
-		if reviewSpinner != nil {
-			reviewSpinner.Stop()
-		}
-
-		if reviewResult.TimedOut {
-			_ = pw.WriteGuardTriggered(fmt.Sprintf("Review timeout after %ds", timeout))
-			ui.Alert("Review agent timeout")
-			git.CommitWIP(i, "review")
-			return fmt.Errorf("review timed out at iteration %d", i)
-		}
-		if reviewResult.ExitCode != 0 {
-			_ = pw.WriteGuardTriggered(fmt.Sprintf("Review failed (exit code %d)", reviewResult.ExitCode))
-			ui.Error("Review failed (code %d)", reviewResult.ExitCode)
-			return fmt.Errorf("review agent failed at iteration %d", i)
-		}
-
-		_ = pw.WriteReview(reviewResult.Output)
-
-		g2 := guardState.CheckRepeatedIssues(reviewResult.Output)
-		if g2.Warning {
-			_ = pw.WriteGuardAlert(g2.Message)
-			ui.Warn("%s", g2.Message)
-		}
-		if g2.Triggered {
-			_ = pw.WriteGuardTriggered(g2.Message)
-			ui.Alert("%s", g2.Message)
-			ui.Alert("Aborting.")
-			_ = pw.WriteSummary("aborted — repeated issues", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
-			return fmt.Errorf("guard triggered: %s", g2.Message)
-		}
-
 		elapsed := int64(time.Since(iterStart).Seconds())
-		_ = pw.WriteIterationTime(elapsed)
 
-		if err := git.CommitIteration(i, execResult.Output); err != nil {
-			ui.Alert("Commit failed: %v", err)
+		if shouldReview(i, cycles, reviewEvery) {
+			// Why: re-read after execution so the reviewer sees the latest output.
+			reviewProgressBytes, err := os.ReadFile(progressFile)
+			if err != nil {
+				return fmt.Errorf("could not read progress file before review at iteration %d: %w", i, err)
+			}
+			reviewMsg := fmt.Sprintf("[%s] Reviewing...", time.Now().Format("15:04:05"))
+			var reviewSpinner *ui.Spinner
+			reviewPrompt := buildReviewPrompt(string(planContent), lastNRuns(string(reviewProgressBytes), 2), reviewerAgent)
+			var reviewResult runner.Result
+			if stream {
+				fmt.Fprintln(os.Stderr, reviewMsg)
+				reviewResult = runner.RunWithRetry(ctx, runner.RunStreamAsyncFn(os.Stdout), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
+			} else {
+				reviewSpinner = ui.NewSpinner(reviewMsg)
+				reviewSpinner.Start()
+				reviewResult = runner.RunWithRetry(ctx, runner.RunAsyncFn(), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
+			}
+
+			if reviewResult.Cancelled {
+				if reviewSpinner != nil {
+					reviewSpinner.Abort()
+				}
+				fmt.Println()
+				ui.Alert("Interrupted — committing partial work")
+				git.CommitWIP(i, "review")
+				_ = pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+				return fmt.Errorf("interrupted")
+			}
+			if reviewSpinner != nil {
+				reviewSpinner.Stop()
+			}
+
+			if reviewResult.TimedOut {
+				_ = pw.WriteGuardTriggered(fmt.Sprintf("Review timeout after %ds", timeout))
+				ui.Alert("Review agent timeout")
+				git.CommitWIP(i, "review")
+				return fmt.Errorf("review timed out at iteration %d", i)
+			}
+			if reviewResult.ExitCode != 0 {
+				_ = pw.WriteGuardTriggered(fmt.Sprintf("Review failed (exit code %d)", reviewResult.ExitCode))
+				ui.Error("Review failed (code %d)", reviewResult.ExitCode)
+				return fmt.Errorf("review agent failed at iteration %d", i)
+			}
+
+			_ = pw.WriteReview(reviewResult.Output)
+
+			g2 := guardState.CheckRepeatedIssues(reviewResult.Output)
+			if g2.Warning {
+				_ = pw.WriteGuardAlert(g2.Message)
+				ui.Warn("%s", g2.Message)
+			}
+			if g2.Triggered {
+				_ = pw.WriteGuardTriggered(g2.Message)
+				ui.Alert("%s", g2.Message)
+				ui.Alert("Aborting.")
+				_ = pw.WriteSummary("aborted — repeated issues", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+				return fmt.Errorf("guard triggered: %s", g2.Message)
+			}
+
+			elapsed = int64(time.Since(iterStart).Seconds())
+			_ = pw.WriteIterationTime(elapsed)
+
+			if err := git.CommitIteration(i, execResult.Output); err != nil {
+				ui.Alert("Commit failed: %v", err)
+			} else {
+				ui.Phase("[%s] Committed iteration %d", time.Now().Format("15:04:05"), i)
+			}
+
+			if jobsDoneRe.MatchString(reviewResult.Output) {
+				_ = pw.WriteSuccess(i)
+				_ = pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
+				fmt.Println()
+				ui.Success("👷 Job's done - completed in %d of %d iterations", i, cycles)
+				return nil
+			}
 		} else {
-			ui.Phase("[%s] Committed iteration %d", time.Now().Format("15:04:05"), i)
-		}
+			_ = pw.WriteIterationTime(elapsed)
 
-		if jobsDoneRe.MatchString(reviewResult.Output) {
-			_ = pw.WriteSuccess(i)
-			_ = pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
-			fmt.Println()
-			ui.Success("👷 Job's done - completed in %d of %d iterations", i, cycles)
-			return nil
+			if err := git.CommitIteration(i, execResult.Output); err != nil {
+				ui.Alert("Commit failed: %v", err)
+			} else {
+				ui.Phase("[%s] Committed iteration %d", time.Now().Format("15:04:05"), i)
+			}
 		}
 
 		fmt.Println()

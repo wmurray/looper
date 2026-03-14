@@ -896,6 +896,115 @@ func TestApplyRepoOverlay_RetriesAbsentDoesNotOverride(t *testing.T) {
 
 func intPtr(n int) *int { return &n }
 
+// --- review_every key ---
+
+func TestSet_ReviewEvery_Valid(t *testing.T) {
+	cfg := Config{}
+	updated, err := Set(cfg, "review_every", "3")
+	if err != nil {
+		t.Fatalf("Set(review_every, 3): unexpected error: %v", err)
+	}
+	if updated.ReviewEvery == nil || *updated.ReviewEvery != 3 {
+		t.Errorf("ReviewEvery = %v, want pointer to 3", updated.ReviewEvery)
+	}
+}
+
+func TestSet_ReviewEvery_One(t *testing.T) {
+	cfg := Config{}
+	updated, err := Set(cfg, "review_every", "1")
+	if err != nil {
+		t.Fatalf("Set(review_every, 1): unexpected error: %v", err)
+	}
+	if updated.ReviewEvery == nil || *updated.ReviewEvery != 1 {
+		t.Errorf("ReviewEvery = %v, want pointer to 1", updated.ReviewEvery)
+	}
+}
+
+func TestSet_ReviewEvery_Zero_ReturnsError(t *testing.T) {
+	cfg := Config{}
+	_, err := Set(cfg, "review_every", "0")
+	if err == nil {
+		t.Fatal("expected error for review_every=0")
+	}
+}
+
+func TestSet_ReviewEvery_Negative_ReturnsError(t *testing.T) {
+	cfg := Config{}
+	_, err := Set(cfg, "review_every", "-1")
+	if err == nil {
+		t.Fatal("expected error for negative review_every")
+	}
+}
+
+func TestGet_ReviewEvery_Nil(t *testing.T) {
+	cfg := Config{} // ReviewEvery is nil
+	val, err := Get(cfg, "review_every")
+	if err != nil {
+		t.Fatalf("Get(review_every) on nil: unexpected error: %v", err)
+	}
+	if val != "1" {
+		t.Errorf("Get(review_every) on nil = %q, want %q", val, "1")
+	}
+}
+
+func TestGet_ReviewEvery_Set(t *testing.T) {
+	cfg := Config{ReviewEvery: intPtr(4)}
+	val, err := Get(cfg, "review_every")
+	if err != nil {
+		t.Fatalf("Get(review_every): unexpected error: %v", err)
+	}
+	if val != "4" {
+		t.Errorf("Get(review_every) = %q, want %q", val, "4")
+	}
+}
+
+func TestGet_ReviewEvery_RoundTrip(t *testing.T) {
+	cfg := Config{}
+	updated, err := Set(cfg, "review_every", "3")
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	val, err := Get(updated, "review_every")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if val != "3" {
+		t.Errorf("round-trip: got %q, want %q", val, "3")
+	}
+}
+
+func TestApplyRepoOverlay_ReviewEvery(t *testing.T) {
+	dst := Config{}
+	src := Config{ReviewEvery: intPtr(2)}
+	result, keys := applyRepoOverlay(dst, src)
+	if result.ReviewEvery == nil || *result.ReviewEvery != 2 {
+		t.Errorf("ReviewEvery = %v, want pointer to 2", result.ReviewEvery)
+	}
+	found := false
+	for _, k := range keys {
+		if k == "review_every" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("overlay keys = %v, want review_every to be present", keys)
+	}
+}
+
+func TestApplyRepoOverlay_ReviewEveryAbsentDoesNotOverride(t *testing.T) {
+	dst := Config{ReviewEvery: intPtr(3)}
+	src := Config{} // ReviewEvery is nil
+	result, keys := applyRepoOverlay(dst, src)
+	if result.ReviewEvery == nil || *result.ReviewEvery != 3 {
+		t.Errorf("ReviewEvery = %v, want pointer to 3", result.ReviewEvery)
+	}
+	for _, k := range keys {
+		if k == "review_every" {
+			t.Errorf("overlay keys should not include review_every when src.ReviewEvery is nil, got %v", keys)
+		}
+	}
+}
+
 func TestGet_NotifyWebhook(t *testing.T) {
 	cfg := Config{NotifyWebhook: "https://hooks.slack.com/test"}
 	val, err := Get(cfg, "notify_webhook")

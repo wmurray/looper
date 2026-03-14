@@ -34,6 +34,7 @@ type Config struct {
 	ReviewerAgent string   `json:"reviewer_agent"`
 	TicketPattern string   `json:"ticket_pattern"`
 	Retries       *int     `json:"retries,omitempty"`
+	ReviewEvery   *int     `json:"review_every,omitempty"`
 	TrustedDirs   []string `json:"trusted_dirs,omitempty"`
 	LinearAPIKey  string   `json:"linear_api_key,omitempty"`
 	PolishAgent   string   `json:"polish_agent,omitempty"`
@@ -146,6 +147,10 @@ func applyRepoOverlay(dst, src Config) (Config, []string) {
 		dst.Retries = src.Retries
 		keys = append(keys, "retries")
 	}
+	if src.ReviewEvery != nil {
+		dst.ReviewEvery = src.ReviewEvery
+		keys = append(keys, "review_every")
+	}
 	return dst, keys
 }
 
@@ -237,8 +242,13 @@ func Get(cfg Config, key string) (string, error) {
 			return "0", nil
 		}
 		return fmt.Sprintf("%d", *cfg.Retries), nil
+	case "review_every":
+		if cfg.ReviewEvery == nil {
+			return "1", nil
+		}
+		return fmt.Sprintf("%d", *cfg.ReviewEvery), nil
 	default:
-		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook, retries)", key)
+		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook, retries, review_every)", key)
 	}
 }
 
@@ -305,8 +315,14 @@ func Set(cfg Config, key, value string) (Config, error) {
 			return cfg, fmt.Errorf("retries must be a non-negative integer")
 		}
 		cfg.Retries = &n
+	case "review_every":
+		var n int
+		if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n < 1 {
+			return cfg, fmt.Errorf("review_every must be a positive integer")
+		}
+		cfg.ReviewEvery = &n
 	default:
-		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook, retries)", key)
+		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook, retries, review_every)", key)
 	}
 	return cfg, nil
 }
