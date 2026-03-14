@@ -82,15 +82,30 @@ func TestResumeStartCycle(t *testing.T) {
 func TestResumeTicketFromArg(t *testing.T) {
 	t.Parallel()
 	var gotTicket string
-	_ = resumeCore("IMP-EXPLICIT",
+	loopCalled := false
+	err := resumeCore("IMP-EXPLICIT",
 		func(ticket string) (looperstate.State, error) {
 			gotTicket = ticket
-			return looperstate.State{Ticket: ticket}, nil
+			return looperstate.State{
+				Ticket:         ticket,
+				PlanFile:       ticket + "_PLAN.md",
+				CyclesTotal:    3,
+				CycleCompleted: 1,
+			}, nil
 		},
-		func(startCycle int, g guards.State) error { return nil },
+		func(startCycle int, g guards.State) error {
+			loopCalled = true
+			return nil
+		},
 	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if gotTicket != "IMP-EXPLICIT" {
 		t.Errorf("ticket = %q, want %q", gotTicket, "IMP-EXPLICIT")
+	}
+	if !loopCalled {
+		t.Error("loop was not called")
 	}
 }
 
