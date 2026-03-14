@@ -436,11 +436,17 @@ func confirmGitStaging(cwd string) (trusted bool, err error) {
 	}
 }
 
+// lastNRuns returns a windowed view of content, keeping only the last n run
+// sections. Sections are delimited by progress.RunSeparator (as written by
+// progress.Writer.BeginRun). If n <= 0, n >= the number of runs, or there are
+// no runs, the full content is returned unchanged. The header block (everything
+// before the first separator) is always preserved.
 func lastNRuns(content string, n int) string {
-	const sep = "\n## RUN "
+	sep := progress.RunSeparator
 	parts := strings.Split(content, sep)
 	// parts[0] is the header; parts[1:] are run bodies (number + content).
 	runs := len(parts) - 1
+	// Return full content when there is nothing to trim.
 	if n <= 0 || runs == 0 || n >= runs {
 		return content
 	}
@@ -487,7 +493,7 @@ Review the implementation against this plan:
 %s
 `+"```"+`
 
-The loop history below contains all iterations so far. The most recent ### Execution section is the current implementation to review.
+The loop history below contains the most recent iterations. The most recent ### Execution section is the current implementation to review.
 
 %s
 
