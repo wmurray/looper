@@ -6,6 +6,11 @@ import (
 	"time"
 )
 
+// RunSeparator is the delimiter written before each run section by BeginRun.
+// Callers that parse progress file content (e.g. lastNRuns) must use this
+// constant so a format change here is caught at compile time.
+const RunSeparator = "\n## RUN "
+
 // Writer appends structured markdown to a progress file.
 type Writer struct {
 	path       string

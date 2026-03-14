@@ -264,7 +264,7 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		headBefore := git.Head()
 		phaseMsg := fmt.Sprintf("[%s] Executing plan...", time.Now().Format("15:04:05"))
 		var execSpinner *ui.Spinner
-		execPrompt := buildExecPrompt(string(planContent), string(execProgressBytes), skillPath)
+		execPrompt := buildExecPrompt(string(planContent), lastNRuns(string(execProgressBytes), 2), skillPath)
 		var execResult runner.Result
 		if stream {
 			fmt.Fprintln(os.Stderr, phaseMsg)
@@ -324,7 +324,7 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		}
 		reviewMsg := fmt.Sprintf("[%s] Reviewing...", time.Now().Format("15:04:05"))
 		var reviewSpinner *ui.Spinner
-		reviewPrompt := buildReviewPrompt(string(planContent), string(reviewProgressBytes), reviewerAgent)
+		reviewPrompt := buildReviewPrompt(string(planContent), lastNRuns(string(reviewProgressBytes), 2), reviewerAgent)
 		var reviewResult runner.Result
 		if stream {
 			fmt.Fprintln(os.Stderr, reviewMsg)
@@ -436,6 +436,23 @@ func confirmGitStaging(cwd string) (trusted bool, err error) {
 	}
 }
 
+// lastNRuns returns a windowed view of content, keeping only the last n run
+// sections. Sections are delimited by progress.RunSeparator (as written by
+// progress.Writer.BeginRun). If n <= 0, n >= the number of runs, or there are
+// no runs, the full content is returned unchanged. The header block (everything
+// before the first separator) is always preserved.
+func lastNRuns(content string, n int) string {
+	sep := progress.RunSeparator
+	parts := strings.Split(content, sep)
+	// parts[0] is the header; parts[1:] are run bodies (number + content).
+	runs := len(parts) - 1
+	// Return full content when there is nothing to trim.
+	if n <= 0 || runs == 0 || n >= runs {
+		return content
+	}
+	return parts[0] + sep + strings.Join(parts[len(parts)-n:], sep)
+}
+
 func buildExecPrompt(planContent, progressContent, skillPath string) string {
 	var historySection string
 	if strings.TrimSpace(progressContent) == "" {
@@ -476,7 +493,7 @@ Review the implementation against this plan:
 %s
 `+"```"+`
 
-The loop history below contains all iterations so far. The most recent ### Execution section is the current implementation to review.
+The loop history below contains the most recent iterations. The most recent ### Execution section is the current implementation to review.
 
 %s
 
