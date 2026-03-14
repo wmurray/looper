@@ -264,7 +264,7 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		headBefore := git.Head()
 		phaseMsg := fmt.Sprintf("[%s] Executing plan...", time.Now().Format("15:04:05"))
 		var execSpinner *ui.Spinner
-		execPrompt := buildExecPrompt(string(planContent), string(execProgressBytes), skillPath)
+		execPrompt := buildExecPrompt(string(planContent), lastNRuns(string(execProgressBytes), 2), skillPath)
 		var execResult runner.Result
 		if stream {
 			fmt.Fprintln(os.Stderr, phaseMsg)
@@ -324,7 +324,7 @@ func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile stri
 		}
 		reviewMsg := fmt.Sprintf("[%s] Reviewing...", time.Now().Format("15:04:05"))
 		var reviewSpinner *ui.Spinner
-		reviewPrompt := buildReviewPrompt(string(planContent), string(reviewProgressBytes), reviewerAgent)
+		reviewPrompt := buildReviewPrompt(string(planContent), lastNRuns(string(reviewProgressBytes), 2), reviewerAgent)
 		var reviewResult runner.Result
 		if stream {
 			fmt.Fprintln(os.Stderr, reviewMsg)
@@ -434,6 +434,17 @@ func confirmGitStaging(cwd string) (trusted bool, err error) {
 	default:
 		return false, fmt.Errorf("aborted by user")
 	}
+}
+
+func lastNRuns(content string, n int) string {
+	const sep = "\n## RUN "
+	parts := strings.Split(content, sep)
+	// parts[0] is the header; parts[1:] are run bodies (number + content).
+	runs := len(parts) - 1
+	if n <= 0 || runs == 0 || n >= runs {
+		return content
+	}
+	return parts[0] + sep + strings.Join(parts[len(parts)-n:], sep)
 }
 
 func buildExecPrompt(planContent, progressContent, skillPath string) string {
