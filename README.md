@@ -34,23 +34,67 @@ Replace `darwin-arm64` with `darwin-amd64` or `linux-amd64` as needed.
 
 ## Commands
 
-### `implement` — run the agent loop
+### `start` — Linear-integrated workflow (recommended)
+
+Fetch a Linear ticket, create a branch, generate a plan, and run the implement loop in one command.
 
 ```bash
-looper implement                        # infer ticket from branch, find *_PLAN.md
-looper implement --plan DX-123_PLAN.md  # explicit plan file
-looper implement --cycles 5             # override cycle count
-looper implement --timeout 300          # override per-iteration timeout (seconds)
-looper implement --dry-run              # print resolved config, don't run agents
-looper implement --yes                  # skip git staging confirmation prompt
+looper start IMP-123              # full workflow: branch → plan → implement
+looper start IMP-123 --dry-run    # fetch and plan only, don't run agents
+looper start IMP-123 --stream     # stream agent output to terminal
+looper start IMP-123 --cycles 3   # override cycle count
+looper start IMP-123 --retries 2  # retry each phase up to 2 times on transient errors
+looper start IMP-123 --notify     # send desktop notification on completion
+```
+
+Requires `linear_api_key` to be set:
+
+```bash
+looper settings set linear_api_key <your-key>
+```
+
+### `implement` — run the agent loop manually
+
+Run the implement/review loop against an existing plan file.
+
+```bash
+looper implement                         # infer ticket from branch, find *_PLAN.md
+looper implement --plan IMP-123_PLAN.md  # explicit plan file
+looper implement --cycles 5              # override cycle count
+looper implement --timeout 300           # override per-iteration timeout (seconds)
+looper implement --retries 2             # retry each phase on transient errors
+looper implement --stream                # stream agent output to terminal
+looper implement --notify                # send desktop notification on completion
+looper implement --dry-run               # print resolved config, don't run agents
+looper implement --yes                   # skip git staging confirmation prompt
 ```
 
 ### `plan` — create a plan file
 
 ```bash
 looper plan              # infer ticket from branch, create TICKET_PLAN.md
-looper plan DX-123       # create DX-123_PLAN.md
+looper plan IMP-123      # create IMP-123_PLAN.md
 looper plan --open       # open in $EDITOR after creation
+looper plan --prompt "add user authentication"  # generate plan content via AI
+```
+
+### `polish` — post-implementation cleanup
+
+Run a polish pass on the current branch before opening a PR: lint commands first, then an agent tidy pass.
+
+```bash
+looper polish             # lint + agent pass
+looper polish --dry-run   # print resolved config without running
+looper polish --yes       # skip confirmation prompt
+```
+
+Configure lint commands and the polish agent in settings (see below).
+
+### `clean` — remove looper working files
+
+```bash
+looper clean        # remove *_PLAN.md, *_PROGRESS.md, *_STATE.json with confirmation
+looper clean --yes  # skip confirmation prompt
 ```
 
 ### `settings` — view or edit configuration
@@ -59,13 +103,17 @@ looper plan --open       # open in $EDITOR after creation
 looper settings                             # print all settings as JSON
 looper settings get backend                 # get a single value
 looper settings set defaults.cycles 5       # set a value
-looper settings set backend claude          # switch backend
+looper settings set linear_api_key <key>    # set Linear API key
 looper settings reset                       # reset to defaults
+looper settings discover                    # scan ~/.claude/ for installed skills/agents
+looper settings discover --apply            # auto-set keys with exactly one candidate
+looper settings discover --ai               # use AI to recommend skill_path and reviewer_agent
+looper settings discover --ai --yes         # apply AI recommendations without prompting
 ```
 
 ## Configuration
 
-Config is stored at `~/.config/looper/config.json`.
+Global config is stored at `~/Library/Application Support/looper/config.json` (macOS). A per-repo `.looper.json` in the project root is merged on top, allowing per-project overrides that can be committed to the repository.
 
 | Key | Default | Description |
 |---|---|---|
@@ -73,21 +121,39 @@ Config is stored at `~/.config/looper/config.json`.
 | `defaults.cycles` | `5` | Maximum implement/review iterations |
 | `defaults.timeout` | `420` | Per-iteration timeout in seconds |
 | `skill_path` | `~/.claude/skills/tdd-workflow/SKILL.md` | Workflow skill injected into the execution prompt |
-| `reviewer_agent` | `~/.claude/agents/rails-code-reviewer.md` | Reviewer agent definition injected into the review prompt |
-| `ticket_pattern` | `[A-Z]+-[0-9]+` | Regex for inferring ticket ID from branch name (e.g. `DX-123`) |
+| `reviewer_agent` | `~/.claude/agents/rails-code-reviewer.md` | Reviewer agent injected into the review prompt |
+| `ticket_pattern` | `[A-Z]+-[0-9]+` | Regex for inferring ticket ID from branch name |
+| `linear_api_key` | — | Linear personal API key (required for `looper start`) |
+| `retries` | `0` | Max retries per phase on transient errors (rate limits, network) |
+| `notify` | `false` | Send desktop notification on loop completion or abort |
+| `notify_webhook` | — | Slack webhook URL to POST notifications to |
+| `polish_agent` | — | Path to polish agent file (falls back to `reviewer_agent`) |
+| `polish_cmds` | — | Comma-separated lint/format commands run before the polish agent |
+
+### Per-repo config (`.looper.json`)
+
+Place a `.looper.json` in your project root to override global settings for that repo:
+
+```json
+{
+  "defaults": { "cycles": 3, "timeout": 300 },
+  "retries": 2,
+  "reviewer_agent": "~/.claude/agents/go-code-reviewer.md"
+}
+```
 
 ## Skills setup
 
-`looper` requires two markdown files to function — a workflow skill for the execution agent and a reviewer agent definition. These are plain markdown files you can write yourself or source from a workflow library.
-
-The recommended source is [dgalarza/claude-code-workflows](https://github.com/dgalarza/claude-code-workflows), which provides a TDD workflow skill and a Rails code reviewer agent:
+`looper` requires two markdown files: a workflow skill for the execution agent and a reviewer agent definition. Use `looper settings discover` to find installed files automatically, or set them manually.
 
 ```bash
-# TDD workflow skill (requires Node.js)
+# Auto-discover and configure (recommended)
+looper settings discover --ai
+
+# Manual setup using dgalarza/claude-code-workflows
 npx skills add dgalarza/claude-code-workflows --skill "tdd-workflow"
 looper settings set skill_path ~/.claude/skills/tdd-workflow/SKILL.md
 
-# Rails code reviewer agent
 curl -fsSL https://raw.githubusercontent.com/dgalarza/claude-code-workflows/main/plugins/rails-toolkit/agents/rails-code-reviewer.md \
   -o ~/.claude/agents/rails-code-reviewer.md
 looper settings set reviewer_agent ~/.claude/agents/rails-code-reviewer.md
