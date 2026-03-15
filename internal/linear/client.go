@@ -3,7 +3,6 @@ package linear
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,26 +34,16 @@ type Issue struct {
 	BranchName  string
 	State       WorkflowState
 	Team        Team
-	Attachments []Attachment
 }
 
-// WorkflowState is a Linear workflow state (backlog, started, completed, etc.).
 type WorkflowState struct {
 	ID   string
 	Name string
 	Type string
 }
 
-// Team is the Linear team the issue belongs to.
 type Team struct {
 	ID string
-}
-
-// Attachment is a Linear issue attachment.
-type Attachment struct {
-	ID    string
-	Title string
-	URL   string
 }
 
 // GetIssue fetches an issue by its identifier (e.g. "ENG-123") or UUID.
@@ -65,7 +54,6 @@ query($id: String!) {
     id identifier title description branchName
     state { id name type }
     team { id }
-    attachments { nodes { id title url } }
   }
 }`
 	var resp struct {
@@ -84,13 +72,6 @@ query($id: String!) {
 				Team struct {
 					ID string `json:"id"`
 				} `json:"team"`
-				Attachments struct {
-					Nodes []struct {
-						ID    string `json:"id"`
-						Title string `json:"title"`
-						URL   string `json:"url"`
-					} `json:"nodes"`
-				} `json:"attachments"`
 			} `json:"issue"`
 		} `json:"data"`
 	}
@@ -104,7 +85,7 @@ query($id: String!) {
 		return nil, fmt.Errorf("issue %q not found", identifier)
 	}
 
-	issue := &Issue{
+	return &Issue{
 		ID:          raw.ID,
 		Identifier:  raw.Identifier,
 		Title:       raw.Title,
@@ -112,15 +93,9 @@ query($id: String!) {
 		BranchName:  raw.BranchName,
 		State:       WorkflowState{ID: raw.State.ID, Name: raw.State.Name, Type: raw.State.Type},
 		Team:        Team{ID: raw.Team.ID},
-	}
-	for _, a := range raw.Attachments.Nodes {
-		issue.Attachments = append(issue.Attachments, Attachment{ID: a.ID, Title: a.Title, URL: a.URL})
-	}
-	return issue, nil
+	}, nil
 }
 
-// SetInProgress finds the first "started" workflow state for the issue's team
-// and updates the issue to that state.
 func (c *Client) SetInProgress(ctx context.Context, issueID, teamID string) error {
 	stateID, err := c.findStartedState(ctx, teamID)
 	if err != nil {
@@ -181,65 +156,72 @@ mutation($id: String!, $stateId: String!) {
 	return nil
 }
 
-// PlanFromAttachment looks for a looper plan embedded in an issue attachment.
-// It looks for an attachment whose title contains "looper-plan" (case-insensitive)
-// and whose URL is a base64-encoded data URI: data:text/plain;base64,<content>.
-// Returns the decoded plan content and true if found.
-func PlanFromAttachment(attachments []Attachment) (string, bool) {
-	const prefix = "data:text/plain;base64,"
-	for _, a := range attachments {
-		if !strings.Contains(strings.ToLower(a.Title), "looper-plan") {
-			continue
-		}
-		if !strings.HasPrefix(a.URL, prefix) {
-			continue
-		}
-		decoded, err := base64.StdEncoding.DecodeString(a.URL[len(prefix):])
-		if err != nil {
-			continue
-		}
-		return string(decoded), true
+const planCommentMarker = "<!-- looper-plan -->"
+
+// PlanFromComment queries the issue's comments by UUID for a looper plan comment.
+// Returns the plan body (with the marker line stripped), true if found, or an error.
+// Gotcha: a comment whose body is exactly the marker with no content is treated as absent.
+func (c *Client) PlanFromComment(ctx context.Context, issueID string) (string, bool, error) {
+	query := `
+query($id: String!) {
+  issue(id: $id) {
+    comments(first: 250) { nodes { id body } }
+  }
+}`
+	var resp struct {
+		Data struct {
+			Issue struct {
+				Comments struct {
+					Nodes []struct {
+						ID   string `json:"id"`
+						Body string `json:"body"`
+					} `json:"nodes"`
+				} `json:"comments"`
+			} `json:"issue"`
+		} `json:"data"`
 	}
-	return "", false
+	if err := c.do(ctx, query, map[string]any{"id": issueID}, &resp); err != nil {
+		return "", false, err
+	}
+	for _, n := range resp.Data.Issue.Comments.Nodes {
+		if strings.HasPrefix(n.Body, planCommentMarker) {
+			content := strings.TrimPrefix(n.Body, planCommentMarker)
+			content = strings.TrimPrefix(content, "\n")
+			if content == "" {
+				continue
+			}
+			return content, true, nil
+		}
+	}
+	return "", false, nil
 }
 
-// AttachPlan creates a looper-plan attachment on the issue embedding the plan
-// content as a base64 data URI. Call only when the issue has no existing plan
-// attachment (i.e. PlanFromAttachment returned false).
-func (c *Client) AttachPlan(ctx context.Context, issueID, content string) error {
-	encoded := base64.StdEncoding.EncodeToString([]byte(content))
-	dataURI := "data:text/plain;base64," + encoded
-
+// CommentPlan posts the plan as a comment on the issue with a looper-plan marker.
+// Invariant: only call when PlanFromComment returned (_, false, nil) for this issue.
+func (c *Client) CommentPlan(ctx context.Context, issueID, content string) error {
 	query := `
-mutation($input: AttachmentCreateInput!) {
-  attachmentCreate(input: $input) {
+mutation($issueId: String!, $body: String!) {
+  commentCreate(input: { issueId: $issueId, body: $body }) {
     success
   }
 }`
 	var resp struct {
 		Data struct {
-			AttachmentCreate struct {
+			CommentCreate struct {
 				Success bool `json:"success"`
-			} `json:"attachmentCreate"`
+			} `json:"commentCreate"`
 		} `json:"data"`
 	}
-
-	if err := c.do(ctx, query, map[string]any{
-		"input": map[string]any{
-			"issueId": issueID,
-			"title":   "looper-plan",
-			"url":     dataURI,
-		},
-	}, &resp); err != nil {
-		return fmt.Errorf("attachmentCreate: %w", err)
+	body := planCommentMarker + "\n" + content
+	if err := c.do(ctx, query, map[string]any{"issueId": issueID, "body": body}, &resp); err != nil {
+		return err
 	}
-	if !resp.Data.AttachmentCreate.Success {
-		return fmt.Errorf("attachmentCreate returned success=false")
+	if !resp.Data.CommentCreate.Success {
+		return fmt.Errorf("commentCreate returned success=false")
 	}
 	return nil
 }
 
-// branchSlugRe matches any run of characters that are not lowercase ASCII alphanumeric.
 var branchSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
 // SlugifyBranch creates a git-safe branch name from an identifier and title.
@@ -256,7 +238,6 @@ func SlugifyBranch(identifier, title string) string {
 	return slug
 }
 
-// graphqlRequest is the JSON body sent to the Linear API.
 type graphqlRequest struct {
 	Query     string         `json:"query"`
 	Variables map[string]any `json:"variables,omitempty"`
@@ -296,7 +277,6 @@ func (c *Client) do(ctx context.Context, query string, variables map[string]any,
 		return fmt.Errorf("linear API status %d: %s", resp.StatusCode, string(raw))
 	}
 
-	// Surface GraphQL-level errors before decoding the data payload.
 	var errCheck struct {
 		Errors []graphqlError `json:"errors"`
 	}

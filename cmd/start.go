@@ -59,8 +59,8 @@ Steps:
   1. Fetch the ticket from Linear (title, description, suggested branch name)
   2. git checkout -b <branch>
   3. Set the ticket state to In Progress
-  4. Resolve the plan: decode from a looper-plan attachment, or generate via AI
-  5. Attach the plan to the Linear ticket, then run the implement loop
+  4. Resolve the plan: read from a looper-plan comment, or generate via AI
+  5. Post the plan as a comment on the Linear ticket, then run the implement loop
 
 Requires linear_api_key to be set:
   looper settings set linear_api_key <your-key>`,
@@ -221,9 +221,15 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	needsPlan := !skipPlanGeneration
 	if needsPlan {
-		if plan, ok := linear.PlanFromAttachment(issue.Attachments); ok {
-			ui.Phase("Using plan from looper-plan attachment")
-			if err := os.WriteFile(planFile, []byte(strings.TrimSpace(plan)+"\n"), 0644); err != nil {
+		// Why: a comment-fetch failure falls through to plan generation so a transient
+		// API error never blocks the loop from starting.
+		commentPlan, commentPlanOk, commentPlanErr := client.PlanFromComment(ctx, issue.ID)
+		if commentPlanErr != nil {
+			ui.Warn("Could not check for existing plan comment: %v", commentPlanErr)
+		}
+		if commentPlanOk {
+			ui.Phase("Using plan from looper-plan comment")
+			if err := os.WriteFile(planFile, []byte(strings.TrimSpace(commentPlan)+"\n"), 0644); err != nil {
 				return fmt.Errorf("write plan file: %w", err)
 			}
 		} else {
@@ -272,15 +278,15 @@ func runStart(cmd *cobra.Command, args []string) error {
 			}
 
 			// Why: plan travels with the issue in Linear; non-fatal so the loop is never blocked.
-			attachSpinner := ui.NewSpinner(fmt.Sprintf("Attaching plan to %s...", issue.Identifier))
-			attachSpinner.Start()
-			if err := client.AttachPlan(ctx, issue.ID, string(planContent)); err != nil {
-				attachSpinner.Abort()
+			commentSpinner := ui.NewSpinner(fmt.Sprintf("Posting plan to %s...", issue.Identifier))
+			commentSpinner.Start()
+			if err := client.CommentPlan(ctx, issue.ID, string(planContent)); err != nil {
+				commentSpinner.Abort()
 				if ctx.Err() == nil {
-					ui.Warn("Could not attach plan to Linear: %v", err)
+					ui.Warn("Could not post plan to Linear: %v", err)
 				}
 			} else {
-				attachSpinner.Stop()
+				commentSpinner.Stop()
 			}
 		}
 

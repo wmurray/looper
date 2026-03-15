@@ -592,7 +592,19 @@ When done, commit your changes:
 - Run: git add -A && git commit -m "<subject>" -m "<body>"
 - Subject line: imperative mood, ≤72 chars, starts with Add/Fix/Refactor/Remove/Update
 - Body (optional): bulleted list of notable changes, one per line
-- Output only the commit message you used (subject + body bullets). Do not narrate the process or ask for confirmation.`, skillPath, planContent, historySection))
+
+## OUTPUT FORMAT
+After committing, output ONLY the commit message you used — nothing else.
+Format:
+  <subject line>
+
+  <optional bullet body>
+Example:
+  Add state persistence after each completed cycle
+
+  - Write {TICKET}_STATE.json after every successful iteration
+  - Delete state file on clean finish or max-cycles
+Do NOT output test results, status summaries, or narration.`, skillPath, planContent, historySection))
 }
 
 func buildReviewPrompt(planContent, progressContent, reviewerAgent string) string {

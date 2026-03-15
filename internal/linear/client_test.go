@@ -2,7 +2,6 @@ package linear
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -50,75 +49,130 @@ func TestSlugifyBranch_LongTitle_Truncated(t *testing.T) {
 	}
 }
 
-// --- PlanFromAttachment ---
+// --- PlanFromComment ---
 
-func TestPlanFromAttachment_Found(t *testing.T) {
+func TestPlanFromComment_Found(t *testing.T) {
 	t.Parallel()
 	content := "# Ticket: ENG-1\n\n## Objective\nDo the thing\n"
-	encoded := base64.StdEncoding.EncodeToString([]byte(content))
-	attachments := []Attachment{
-		{ID: "a1", Title: "looper-plan", URL: "data:text/plain;base64," + encoded},
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{
+			"data": map[string]any{
+				"issue": map[string]any{
+					"comments": map[string]any{
+						"nodes": []any{
+							map[string]any{"id": "c1", "body": "<!-- looper-plan -->\n" + content},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	got, ok, err := client.PlanFromComment(context.Background(), "issue-uuid")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	got, ok := PlanFromAttachment(attachments)
 	if !ok {
 		t.Fatal("expected plan to be found")
 	}
 	if got != content {
-		t.Errorf("decoded plan mismatch\ngot:  %q\nwant: %q", got, content)
+		t.Errorf("plan mismatch\ngot:  %q\nwant: %q", got, content)
 	}
 }
 
-func TestPlanFromAttachment_TitleCaseInsensitive(t *testing.T) {
+func TestPlanFromComment_NotFound(t *testing.T) {
 	t.Parallel()
-	encoded := base64.StdEncoding.EncodeToString([]byte("plan content"))
-	attachments := []Attachment{
-		{ID: "a1", Title: "LOOPER-PLAN v2", URL: "data:text/plain;base64," + encoded},
-	}
-	_, ok := PlanFromAttachment(attachments)
-	if !ok {
-		t.Fatal("expected case-insensitive title match")
-	}
-}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{
+			"data": map[string]any{
+				"issue": map[string]any{
+					"comments": map[string]any{
+						"nodes": []any{
+							map[string]any{"id": "c1", "body": "just a regular comment"},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
 
-func TestPlanFromAttachment_NotFound_WrongTitle(t *testing.T) {
-	t.Parallel()
-	encoded := base64.StdEncoding.EncodeToString([]byte("plan content"))
-	attachments := []Attachment{
-		{ID: "a1", Title: "design-doc", URL: "data:text/plain;base64," + encoded},
+	client := newTestClient(t, srv)
+	_, ok, err := client.PlanFromComment(context.Background(), "issue-uuid")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	_, ok := PlanFromAttachment(attachments)
 	if ok {
-		t.Fatal("expected no match for wrong title")
+		t.Fatal("expected no plan found")
 	}
 }
 
-func TestPlanFromAttachment_NotFound_WrongURLScheme(t *testing.T) {
+func TestPlanFromComment_Empty(t *testing.T) {
 	t.Parallel()
-	attachments := []Attachment{
-		{ID: "a1", Title: "looper-plan", URL: "https://example.com/plan.md"},
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{
+			"data": map[string]any{
+				"issue": map[string]any{
+					"comments": map[string]any{"nodes": []any{}},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, ok, err := client.PlanFromComment(context.Background(), "issue-uuid")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	_, ok := PlanFromAttachment(attachments)
 	if ok {
-		t.Fatal("expected no match for non-data URI")
+		t.Fatal("expected false for empty comments")
 	}
 }
 
-func TestPlanFromAttachment_InvalidBase64_Skipped(t *testing.T) {
+func TestPlanFromComment_MarkerOnlySkipped(t *testing.T) {
 	t.Parallel()
-	attachments := []Attachment{
-		{ID: "a1", Title: "looper-plan", URL: "data:text/plain;base64,!!!not-valid-base64!!!"},
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{
+			"data": map[string]any{
+				"issue": map[string]any{
+					"comments": map[string]any{
+						"nodes": []any{
+							// marker with no body — should be treated as absent
+							map[string]any{"id": "c1", "body": "<!-- looper-plan -->"},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, ok, err := client.PlanFromComment(context.Background(), "issue-uuid")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	_, ok := PlanFromAttachment(attachments)
 	if ok {
-		t.Fatal("expected invalid base64 to be skipped")
+		t.Fatal("expected marker-only comment to be treated as absent")
 	}
 }
 
-func TestPlanFromAttachment_Empty(t *testing.T) {
+func TestPlanFromComment_GraphQLError(t *testing.T) {
 	t.Parallel()
-	_, ok := PlanFromAttachment(nil)
-	if ok {
-		t.Fatal("expected false for nil attachments")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{
+			"errors": []any{map[string]any{"message": "unauthorized"}},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, _, err := client.PlanFromComment(context.Background(), "issue-uuid")
+	if err == nil {
+		t.Fatal("expected error for GraphQL error response")
 	}
 }
 
@@ -155,9 +209,8 @@ func TestGetIssue_HappyPath(t *testing.T) {
 					"title":       "Implement OAuth",
 					"description": "Add OAuth 2.0 support",
 					"branchName":  "eng-42-implement-oauth",
-					"state":       map[string]any{"id": "s1", "name": "Todo", "type": "unstarted"},
-					"team":        map[string]any{"id": "team-1"},
-					"attachments": map[string]any{"nodes": []any{}},
+					"state":      map[string]any{"id": "s1", "name": "Todo", "type": "unstarted"},
+					"team":       map[string]any{"id": "team-1"},
 				},
 			},
 		})
@@ -186,7 +239,7 @@ func TestGetIssue_HappyPath(t *testing.T) {
 	}
 }
 
-func TestGetIssue_WithAttachments(t *testing.T) {
+func TestGetIssue_MinimalFields(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{
@@ -195,9 +248,6 @@ func TestGetIssue_WithAttachments(t *testing.T) {
 					"id": "uuid-2", "identifier": "ENG-1", "title": "T", "description": "", "branchName": "",
 					"state": map[string]any{"id": "s1", "name": "Todo", "type": "unstarted"},
 					"team": map[string]any{"id": "team-1"},
-					"attachments": map[string]any{"nodes": []any{
-						map[string]any{"id": "att-1", "title": "looper-plan", "url": "data:text/plain;base64,cGxhbg=="},
-					}},
 				},
 			},
 		})
@@ -209,11 +259,8 @@ func TestGetIssue_WithAttachments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(issue.Attachments) != 1 {
-		t.Fatalf("expected 1 attachment, got %d", len(issue.Attachments))
-	}
-	if issue.Attachments[0].Title != "looper-plan" {
-		t.Errorf("attachment title = %q, want %q", issue.Attachments[0].Title, "looper-plan")
+	if issue.ID != "uuid-2" {
+		t.Errorf("ID = %q, want %q", issue.ID, "uuid-2")
 	}
 }
 
@@ -334,9 +381,9 @@ func TestSetInProgress_NoStartedState(t *testing.T) {
 	}
 }
 
-// --- AttachPlan ---
+// --- CommentPlan ---
 
-func TestAttachPlan_HappyPath(t *testing.T) {
+func TestCommentPlan_HappyPath(t *testing.T) {
 	t.Parallel()
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -346,7 +393,7 @@ func TestAttachPlan_HappyPath(t *testing.T) {
 		}
 		writeJSON(w, 200, map[string]any{
 			"data": map[string]any{
-				"attachmentCreate": map[string]any{"success": true},
+				"commentCreate": map[string]any{"success": true},
 			},
 		})
 	}))
@@ -354,43 +401,34 @@ func TestAttachPlan_HappyPath(t *testing.T) {
 
 	content := "# Ticket: ENG-1\n\n## Objective\nDo the thing\n"
 	client := newTestClient(t, srv)
-	if err := client.AttachPlan(context.Background(), "issue-uuid", content); err != nil {
+	if err := client.CommentPlan(context.Background(), "issue-uuid", content); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify the attachment input contains the expected title and encoded content.
+	// Verify the comment body contains the marker and the plan content.
 	vars, _ := gotBody["variables"].(map[string]any)
-	input, _ := vars["input"].(map[string]any)
-	if input["title"] != "looper-plan" {
-		t.Errorf("title = %q, want %q", input["title"], "looper-plan")
+	body, _ := vars["body"].(string)
+	if !strings.HasPrefix(body, "<!-- looper-plan -->") {
+		t.Errorf("body does not start with marker: %q", body)
 	}
-	url, _ := input["url"].(string)
-	const prefix = "data:text/plain;base64,"
-	if !strings.HasPrefix(url, prefix) {
-		t.Errorf("url does not start with data URI prefix: %q", url)
-	}
-	decoded, err := base64.StdEncoding.DecodeString(url[len(prefix):])
-	if err != nil {
-		t.Fatalf("base64 decode: %v", err)
-	}
-	if string(decoded) != content {
-		t.Errorf("decoded content = %q, want %q", string(decoded), content)
+	if !strings.Contains(body, content) {
+		t.Errorf("body does not contain plan content: %q", body)
 	}
 }
 
-func TestAttachPlan_SuccessFalse(t *testing.T) {
+func TestCommentPlan_SuccessFalse(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{
 			"data": map[string]any{
-				"attachmentCreate": map[string]any{"success": false},
+				"commentCreate": map[string]any{"success": false},
 			},
 		})
 	}))
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	err := client.AttachPlan(context.Background(), "issue-uuid", "plan content")
+	err := client.CommentPlan(context.Background(), "issue-uuid", "plan content")
 	if err == nil {
 		t.Fatal("expected error when success=false")
 	}
@@ -399,7 +437,7 @@ func TestAttachPlan_SuccessFalse(t *testing.T) {
 	}
 }
 
-func TestAttachPlan_HTTPError(t *testing.T) {
+func TestCommentPlan_HTTPError(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(403)
@@ -408,7 +446,7 @@ func TestAttachPlan_HTTPError(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	err := client.AttachPlan(context.Background(), "issue-uuid", "plan content")
+	err := client.CommentPlan(context.Background(), "issue-uuid", "plan content")
 	if err == nil {
 		t.Fatal("expected error for HTTP 403")
 	}
@@ -417,7 +455,7 @@ func TestAttachPlan_HTTPError(t *testing.T) {
 	}
 }
 
-func TestAttachPlan_GraphQLError(t *testing.T) {
+func TestCommentPlan_GraphQLError(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{
@@ -427,7 +465,7 @@ func TestAttachPlan_GraphQLError(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	err := client.AttachPlan(context.Background(), "issue-uuid", "plan content")
+	err := client.CommentPlan(context.Background(), "issue-uuid", "plan content")
 	if err == nil {
 		t.Fatal("expected error for GraphQL errors array")
 	}
