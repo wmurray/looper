@@ -221,6 +221,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	needsPlan := !skipPlanGeneration
 	if needsPlan {
+		// Why: a comment-fetch failure falls through to plan generation so a transient
+		// API error never blocks the loop from starting.
 		commentPlan, commentPlanOk, commentPlanErr := client.PlanFromComment(ctx, issue.ID)
 		if commentPlanErr != nil {
 			ui.Warn("Could not check for existing plan comment: %v", commentPlanErr)

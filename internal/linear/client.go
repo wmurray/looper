@@ -162,13 +162,14 @@ mutation($id: String!, $stateId: String!) {
 
 const planCommentMarker = "<!-- looper-plan -->"
 
-// PlanFromComment queries the issue's comments for a looper plan comment.
+// PlanFromComment queries the issue's comments by UUID for a looper plan comment.
 // Returns the plan body (with the marker line stripped), true if found, or an error.
+// A comment whose body is exactly the marker with no content is treated as absent.
 func (c *Client) PlanFromComment(ctx context.Context, issueID string) (string, bool, error) {
 	query := `
 query($id: String!) {
   issue(id: $id) {
-    comments { nodes { id body } }
+    comments(first: 250) { nodes { id body } }
   }
 }`
 	var resp struct {
@@ -190,6 +191,9 @@ query($id: String!) {
 		if strings.HasPrefix(n.Body, planCommentMarker) {
 			content := strings.TrimPrefix(n.Body, planCommentMarker)
 			content = strings.TrimPrefix(content, "\n")
+			if content == "" {
+				continue // marker-only comment with no plan body
+			}
 			return content, true, nil
 		}
 	}
@@ -214,7 +218,7 @@ mutation($issueId: String!, $body: String!) {
 	}
 	body := planCommentMarker + "\n" + content
 	if err := c.do(ctx, query, map[string]any{"issueId": issueID, "body": body}, &resp); err != nil {
-		return fmt.Errorf("commentCreate: %w", err)
+		return err
 	}
 	if !resp.Data.CommentCreate.Success {
 		return fmt.Errorf("commentCreate returned success=false")

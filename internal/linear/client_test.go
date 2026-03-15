@@ -132,6 +132,34 @@ func TestPlanFromComment_Empty(t *testing.T) {
 	}
 }
 
+func TestPlanFromComment_MarkerOnlySkipped(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{
+			"data": map[string]any{
+				"issue": map[string]any{
+					"comments": map[string]any{
+						"nodes": []any{
+							// marker with no body — should be treated as absent
+							map[string]any{"id": "c1", "body": "<!-- looper-plan -->"},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, ok, err := client.PlanFromComment(context.Background(), "issue-uuid")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Fatal("expected marker-only comment to be treated as absent")
+	}
+}
+
 func TestPlanFromComment_GraphQLError(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -181,9 +209,8 @@ func TestGetIssue_HappyPath(t *testing.T) {
 					"title":       "Implement OAuth",
 					"description": "Add OAuth 2.0 support",
 					"branchName":  "eng-42-implement-oauth",
-					"state":       map[string]any{"id": "s1", "name": "Todo", "type": "unstarted"},
-					"team":        map[string]any{"id": "team-1"},
-					"attachments": map[string]any{"nodes": []any{}},
+					"state":      map[string]any{"id": "s1", "name": "Todo", "type": "unstarted"},
+					"team":       map[string]any{"id": "team-1"},
 				},
 			},
 		})
