@@ -36,14 +36,12 @@ type Issue struct {
 	Team        Team
 }
 
-// WorkflowState is a Linear workflow state (backlog, started, completed, etc.).
 type WorkflowState struct {
 	ID   string
 	Name string
 	Type string
 }
 
-// Team is the Linear team the issue belongs to.
 type Team struct {
 	ID string
 }
@@ -98,8 +96,6 @@ query($id: String!) {
 	}, nil
 }
 
-// SetInProgress finds the first "started" workflow state for the issue's team
-// and updates the issue to that state.
 func (c *Client) SetInProgress(ctx context.Context, issueID, teamID string) error {
 	stateID, err := c.findStartedState(ctx, teamID)
 	if err != nil {
@@ -164,7 +160,7 @@ const planCommentMarker = "<!-- looper-plan -->"
 
 // PlanFromComment queries the issue's comments by UUID for a looper plan comment.
 // Returns the plan body (with the marker line stripped), true if found, or an error.
-// A comment whose body is exactly the marker with no content is treated as absent.
+// Gotcha: a comment whose body is exactly the marker with no content is treated as absent.
 func (c *Client) PlanFromComment(ctx context.Context, issueID string) (string, bool, error) {
 	query := `
 query($id: String!) {
@@ -192,7 +188,7 @@ query($id: String!) {
 			content := strings.TrimPrefix(n.Body, planCommentMarker)
 			content = strings.TrimPrefix(content, "\n")
 			if content == "" {
-				continue // marker-only comment with no plan body
+				continue
 			}
 			return content, true, nil
 		}
@@ -201,7 +197,7 @@ query($id: String!) {
 }
 
 // CommentPlan posts the plan as a comment on the issue with a looper-plan marker.
-// Call only when PlanFromComment returned false (no existing plan comment).
+// Invariant: only call when PlanFromComment returned (_, false, nil) for this issue.
 func (c *Client) CommentPlan(ctx context.Context, issueID, content string) error {
 	query := `
 mutation($issueId: String!, $body: String!) {
@@ -226,7 +222,6 @@ mutation($issueId: String!, $body: String!) {
 	return nil
 }
 
-// branchSlugRe matches any run of characters that are not lowercase ASCII alphanumeric.
 var branchSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
 // SlugifyBranch creates a git-safe branch name from an identifier and title.
@@ -243,7 +238,6 @@ func SlugifyBranch(identifier, title string) string {
 	return slug
 }
 
-// graphqlRequest is the JSON body sent to the Linear API.
 type graphqlRequest struct {
 	Query     string         `json:"query"`
 	Variables map[string]any `json:"variables,omitempty"`
@@ -283,7 +277,6 @@ func (c *Client) do(ctx context.Context, query string, variables map[string]any,
 		return fmt.Errorf("linear API status %d: %s", resp.StatusCode, string(raw))
 	}
 
-	// Surface GraphQL-level errors before decoding the data payload.
 	var errCheck struct {
 		Errors []graphqlError `json:"errors"`
 	}
