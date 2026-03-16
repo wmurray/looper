@@ -41,9 +41,9 @@ func resumeCore(
 	fmt.Println()
 
 	g := guards.State{
-		ThrashCount: s.ThrashCount,
-		StuckCount:  s.StuckCount,
-		PrevIssues:  s.PrevIssues,
+		ThrashCount:   s.ThrashCount,
+		StuckCount:    s.StuckCount,
+		PrevIssueHash: s.PrevIssues,
 	}
 	return loopFn(s.CycleCompleted+1, g)
 }

@@ -132,27 +132,3 @@ func TestResumeAlreadyComplete(t *testing.T) {
 		t.Error("loop should not be called when all cycles already completed")
 	}
 }
-
-func TestResumeAlreadyComplete(t *testing.T) {
-	t.Parallel()
-	loopCalled := false
-	err := resumeCore("IMP-99",
-		func(ticket string) (looperstate.State, error) {
-			return looperstate.State{
-				Ticket:         "IMP-99",
-				CyclesTotal:    3,
-				CycleCompleted: 3,
-			}, nil
-		},
-		func(startCycle int, g guards.State) error {
-			loopCalled = true
-			return nil
-		},
-	)
-	if err == nil {
-		t.Fatal("expected error when loop already completed, got nil")
-	}
-	if loopCalled {
-		t.Error("loop should not be called when all cycles already completed")
-	}
-}
