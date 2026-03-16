@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -62,8 +63,7 @@ Steps:
   4. Resolve the plan: read from a looper-plan comment, or generate via AI
   5. Post the plan as a comment on the Linear ticket, then run the implement loop
 
-Requires linear_api_key to be set:
-  looper settings set linear_api_key <your-key>`,
+Requires LINEAR_API_KEY in the environment or a .env file in the project root.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runStart,
 }
@@ -87,8 +87,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if cfg.LinearAPIKey == "" {
-		return fmt.Errorf("linear_api_key not set\nRun: looper settings set linear_api_key <your-key>")
+	dotEnvPath := ".env"
+	if repoRoot, err := git.RepoRoot(); err == nil {
+		dotEnvPath = filepath.Join(repoRoot, ".env")
+	}
+	loadDotEnv(dotEnvPath)
+	linearAPIKey := os.Getenv("LINEAR_API_KEY")
+	if linearAPIKey == "" {
+		return fmt.Errorf("Linear API key not found - please add LINEAR_API_KEY to your .env file")
 	}
 
 	// Why: validate pattern before hitting the network to avoid a wasted API round-trip.
@@ -108,7 +114,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signals.WithInterrupt(context.Background())
 	defer cancel()
 
-	client := linear.New(cfg.LinearAPIKey)
+	client := linear.New(linearAPIKey)
 
 	fetchSpinner := ui.NewSpinner(fmt.Sprintf("Fetching %s from Linear...", ticketID))
 	fetchSpinner.Start()
@@ -344,4 +350,41 @@ func runStart(cmd *cobra.Command, args []string) error {
 		notify.Send(doNotify, cfg.NotifyWebhook, notifyTitle, "Loop finished successfully")
 	}
 	return loopErr
+}
+
+func loadDotEnv(path string) {
+	loadDotEnvWithWarn(path, func(msg string) { ui.Warn("%s", msg) })
+}
+
+// loadDotEnvWithWarn reads KEY=VALUE pairs from path and sets any that are not
+// already in the environment. It is a no-op when the file does not exist.
+// warn is called for read errors other than ErrNotExist.
+func loadDotEnvWithWarn(path string, warn func(string)) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			warn(fmt.Sprintf("could not read .env file %s: %v", path, err))
+		}
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+			value = value[1 : len(value)-1]
+		}
+		if _, present := os.LookupEnv(key); key == "" || present {
+			continue
+		}
+		// Invariant: only sets variables absent from the environment; even an explicit empty var wins.
+		_ = os.Setenv(key, value)
+	}
 }

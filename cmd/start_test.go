@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -77,6 +78,18 @@ func TestStartCmd_Flags(t *testing.T) {
 				t.Errorf("--%s default = %q, want %q", tc.flag, f.DefValue, tc.defValue)
 			}
 		})
+	}
+}
+
+func TestRunStart_MissingLinearAPIKey_ReturnsEnvVarError(t *testing.T) {
+	t.Setenv("LINEAR_API_KEY", "")
+	err := runStart(startCmd, []string{"ENG-1"})
+	if err == nil {
+		t.Fatal("expected error when LINEAR_API_KEY is unset")
+	}
+	const want = "Linear API key not found - please add LINEAR_API_KEY to your .env file"
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
 	}
 }
 

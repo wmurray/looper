@@ -50,11 +50,14 @@ looper start IMP-123 --review-every 2  # run reviewer every N cycles
 looper start IMP-123 --notify     # send desktop notification on completion
 ```
 
-Requires `linear_api_key` to be set:
+Requires `LINEAR_API_KEY` in the environment or a `.env` file in the project root:
 
 ```bash
-looper settings set linear_api_key <your-key>
+echo "LINEAR_API_KEY=lin_api_..." >> .env
+# or: export LINEAR_API_KEY=lin_api_...
 ```
+
+Linear integration is optional — it is only used by `looper start`. All other commands work without it.
 
 ### `implement` — run the agent loop manually
 
@@ -125,7 +128,6 @@ looper clean --yes  # skip confirmation prompt
 looper settings                             # print all settings as JSON
 looper settings get backend                 # get a single value
 looper settings set defaults.cycles 5       # set a value
-looper settings set linear_api_key <key>    # set Linear API key
 looper settings reset                       # reset to defaults
 looper settings discover                    # scan ~/.claude/ for installed skills/agents
 looper settings discover --apply            # auto-set keys with exactly one candidate
@@ -145,7 +147,6 @@ Global config is stored at `~/Library/Application Support/looper/config.json` (m
 | `skill_path` | `~/.claude/skills/tdd-workflow/SKILL.md` | Workflow skill injected into the execution prompt |
 | `reviewer_agent` | `~/.claude/agents/rails-code-reviewer.md` | Reviewer agent injected into the review prompt |
 | `ticket_pattern` | `[A-Z]+-[0-9]+` | Regex for inferring ticket ID from branch name |
-| `linear_api_key` | — | Linear personal API key (required for `looper start`) |
 | `retries` | `0` | Max retries per phase on transient errors (rate limits, network) |
 | `notify` | `false` | Send desktop notification on loop completion or abort |
 | `notify_webhook` | — | Slack webhook URL to POST notifications to |

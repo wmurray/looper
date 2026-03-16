@@ -588,13 +588,8 @@ Comment style (mandatory):
 - Remove any comment that restates what the code does, narrates control flow, or explains a name that could be improved by renaming
 - If no comment is needed, write none
 
-When done, commit your changes:
-- Run: git add -A && git commit -m "<subject>" -m "<body>"
-- Subject line: imperative mood, ≤72 chars, starts with Add/Fix/Refactor/Remove/Update
-- Body (optional): bulleted list of notable changes, one per line
-
 ## OUTPUT FORMAT
-After committing, output ONLY the commit message you used — nothing else.
+When done, output ONLY a commit message summarising your changes — nothing else.
 Format:
   <subject line>
 
@@ -604,7 +599,8 @@ Example:
 
   - Write {TICKET}_STATE.json after every successful iteration
   - Delete state file on clean finish or max-cycles
-Do NOT output test results, status summaries, or narration.`, skillPath, planContent, historySection))
+Subject line: imperative mood, ≤72 chars, starts with Add/Fix/Refactor/Remove/Update
+Do NOT commit. Do NOT output test results, status summaries, or narration.`, skillPath, planContent, historySection))
 }
 
 func buildReviewPrompt(planContent, progressContent, reviewerAgent string) string {
