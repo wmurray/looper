@@ -29,7 +29,6 @@ Valid keys:
   skill_path          Path to skill/workflow file
   reviewer_agent      Path to reviewer agent file
   ticket_pattern      Regex for inferring ticket ID from branch name (default: [A-Z]+-[0-9]+)
-  linear_api_key      Linear personal API key (used by looper start)
   polish_agent        Path to polish agent file (falls back to reviewer_agent if unset)
   polish_cmds         Comma-separated lint/format commands run before the polish agent
   notify              Send desktop notification on loop completion or abort (true/false)

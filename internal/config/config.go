@@ -36,7 +36,6 @@ type Config struct {
 	Retries       *int     `json:"retries,omitempty"`
 	ReviewEvery   *int     `json:"review_every,omitempty"`
 	TrustedDirs   []string `json:"trusted_dirs,omitempty"`
-	LinearAPIKey  string   `json:"linear_api_key,omitempty"`
 	PolishAgent   string   `json:"polish_agent,omitempty"`
 	PolishCmds    []string `json:"polish_cmds,omitempty"`
 	Notify        bool     `json:"notify,omitempty"`
@@ -131,10 +130,6 @@ func applyRepoOverlay(dst, src Config) (Config, []string) {
 		dst.TicketPattern = src.TicketPattern
 		keys = append(keys, "ticket_pattern")
 	}
-	if src.LinearAPIKey != "" {
-		dst.LinearAPIKey = src.LinearAPIKey
-		keys = append(keys, "linear_api_key")
-	}
 	if src.PolishAgent != "" {
 		dst.PolishAgent = src.PolishAgent
 		keys = append(keys, "polish_agent")
@@ -224,8 +219,6 @@ func Get(cfg Config, key string) (string, error) {
 		return cfg.ReviewerAgent, nil
 	case "ticket_pattern":
 		return cfg.TicketPattern, nil
-	case "linear_api_key":
-		return cfg.LinearAPIKey, nil
 	case "polish_agent":
 		return cfg.PolishAgent, nil
 	case "polish_cmds":
@@ -248,7 +241,7 @@ func Get(cfg Config, key string) (string, error) {
 		}
 		return fmt.Sprintf("%d", *cfg.ReviewEvery), nil
 	default:
-		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook, retries, review_every)", key)
+		return "", fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, polish_agent, polish_cmds, notify, notify_webhook, retries, review_every)", key)
 	}
 }
 
@@ -281,8 +274,6 @@ func Set(cfg Config, key, value string) (Config, error) {
 			return cfg, fmt.Errorf("ticket_pattern is not a valid regex: %w", err)
 		}
 		cfg.TicketPattern = value
-	case "linear_api_key":
-		cfg.LinearAPIKey = value
 	case "polish_agent":
 		cfg.PolishAgent = value
 	case "polish_cmds":
@@ -322,7 +313,7 @@ func Set(cfg Config, key, value string) (Config, error) {
 		}
 		cfg.ReviewEvery = &n
 	default:
-		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, linear_api_key, polish_agent, polish_cmds, notify, notify_webhook, retries, review_every)", key)
+		return cfg, fmt.Errorf("unknown key: %s (valid keys: backend, defaults.cycles, defaults.timeout, skill_path, reviewer_agent, ticket_pattern, polish_agent, polish_cmds, notify, notify_webhook, retries, review_every)", key)
 	}
 	return cfg, nil
 }

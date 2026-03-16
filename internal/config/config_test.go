@@ -279,25 +279,19 @@ func TestSave_FilePermissions(t *testing.T) {
 	}
 }
 
-func TestSet_LinearAPIKey(t *testing.T) {
+func TestGet_LinearAPIKey_ReturnsUnknownError(t *testing.T) {
 	cfg := Config{}
-	updated, err := Set(cfg, "linear_api_key", "lin_api_abc123")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if updated.LinearAPIKey != "lin_api_abc123" {
-		t.Errorf("LinearAPIKey = %q, want %q", updated.LinearAPIKey, "lin_api_abc123")
+	_, err := Get(cfg, "linear_api_key")
+	if err == nil {
+		t.Fatal("expected error for linear_api_key — key must not be stored in config")
 	}
 }
 
-func TestGet_LinearAPIKey(t *testing.T) {
-	cfg := Config{LinearAPIKey: "lin_api_xyz"}
-	val, err := Get(cfg, "linear_api_key")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if val != "lin_api_xyz" {
-		t.Errorf("Get(linear_api_key) = %q, want %q", val, "lin_api_xyz")
+func TestSet_LinearAPIKey_ReturnsUnknownError(t *testing.T) {
+	cfg := Config{}
+	_, err := Set(cfg, "linear_api_key", "lin_api_abc123")
+	if err == nil {
+		t.Fatal("expected error for linear_api_key — key must not be stored in config")
 	}
 }
 
