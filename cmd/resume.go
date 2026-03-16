@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/willmurray/looper/internal/config"
@@ -82,13 +84,30 @@ func runResume(cmd *cobra.Command, args []string) error {
 	}
 
 	// Warn if skill files are missing — same as implement.
+	// Prompt for confirmation if any are absent (unless --yes is set via global flags).
 	skillPath := config.ExpandPath(cfg.SkillPath)
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
+
+	missingFiles := false
 	if _, err := os.Stat(skillPath); err != nil {
 		ui.Warn("skill_path not found: %s", skillPath)
+		ui.Warn("Set it with: looper settings set skill_path <path>")
+		missingFiles = true
 	}
 	if _, err := os.Stat(reviewerAgent); err != nil {
 		ui.Warn("reviewer_agent not found: %s", reviewerAgent)
+		ui.Warn("Set it with: looper settings set reviewer_agent <path>")
+		missingFiles = true
+	}
+	if missingFiles {
+		fmt.Printf("\nSkill files are missing. Continue anyway? [y/N] ")
+		scanner := bufio.NewScanner(os.Stdin)
+		if !scanner.Scan() {
+			return fmt.Errorf("aborted")
+		}
+		if answer := strings.TrimSpace(strings.ToLower(scanner.Text())); answer != "y" && answer != "yes" {
+			return fmt.Errorf("aborted")
+		}
 	}
 
 	ctx, cancel := signals.WithInterrupt(context.Background())
