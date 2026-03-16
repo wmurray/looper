@@ -6,7 +6,9 @@
 
 This is an experimental proof of concept inspired by the [Ralph Loop](https://github.com/anthropics/claude-code/tree/main/plugins/ralph-wiggum) pattern from Claude Code's plugin ecosystem. Where Ralph runs a single self-referential agent loop via a Stop hook, `looper` is orchestrated externally as a Go CLI and adds a dedicated reviewer agent, explicit git checkpointing, safety guards, and progress tracking.
 
-It was written for personal use under specific conditions — a Rails codebase, Claude Code as the backend, and a particular set of workflow skills. As a result, some configuration assumptions are baked in rather than fully generalised. Use it as a reference or starting point, not a polished general-purpose tool.
+It was 100% vibe-coded, written for personal use under specific conditions — a Rails codebase, Claude Code as the backend, and a particular set of workflow skills. As a result, some configuration assumptions are baked in rather than fully generalised. Consider it a reference or starting point, not a polished general-purpose tool.
+
+#### **Use at your own risk.**
 
 ## Prerequisites
 
@@ -44,6 +46,7 @@ looper start IMP-123 --dry-run    # fetch and plan only, don't run agents
 looper start IMP-123 --stream     # stream agent output to terminal
 looper start IMP-123 --cycles 3   # override cycle count
 looper start IMP-123 --retries 2  # retry each phase up to 2 times on transient errors
+looper start IMP-123 --review-every 2  # run reviewer every N cycles
 looper start IMP-123 --notify     # send desktop notification on completion
 ```
 
@@ -63,10 +66,19 @@ looper implement --plan IMP-123_PLAN.md  # explicit plan file
 looper implement --cycles 5              # override cycle count
 looper implement --timeout 300           # override per-iteration timeout (seconds)
 looper implement --retries 2             # retry each phase on transient errors
+looper implement --review-every 2        # run reviewer every N cycles (1 = every cycle)
 looper implement --stream                # stream agent output to terminal
 looper implement --notify                # send desktop notification on completion
 looper implement --dry-run               # print resolved config, don't run agents
 looper implement --yes                   # skip git staging confirmation prompt
+```
+
+### `resume` — continue an interrupted loop
+
+Continue an implement/review loop from the last completed cycle (after a network failure, timeout, or manual stop).
+
+```bash
+looper resume IMP-123  # resume from the last checkpoint
 ```
 
 ### `plan` — create a plan file
@@ -89,6 +101,16 @@ looper polish --yes       # skip confirmation prompt
 ```
 
 Configure lint commands and the polish agent in settings (see below).
+
+### `report` — show run history
+
+Display a summary of recent looper runs with status, cycles, and outcomes.
+
+```bash
+looper report              # show last 20 runs
+looper report --last 50    # show last 50 runs
+looper report --ticket IMP-123  # filter by ticket ID
+```
 
 ### `clean` — remove looper working files
 
@@ -144,22 +166,16 @@ Place a `.looper.json` in your project root to override global settings for that
 
 ## Skills setup
 
-`looper` requires two markdown files: a workflow skill for the execution agent and a reviewer agent definition. Use `looper settings discover` to find installed files automatically, or set them manually.
+`looper` requires two markdown files: a workflow skill for the execution agent and a reviewer agent definition. Use `looper settings discover` to find installed files automatically.
 
 ```bash
 # Auto-discover and configure (recommended)
 looper settings discover --ai
-
-# Manual setup using dgalarza/claude-code-workflows
-npx skills add dgalarza/claude-code-workflows --skill "tdd-workflow"
-looper settings set skill_path ~/.claude/skills/tdd-workflow/SKILL.md
-
-curl -fsSL https://raw.githubusercontent.com/dgalarza/claude-code-workflows/main/plugins/rails-toolkit/agents/rails-code-reviewer.md \
-  -o ~/.claude/agents/rails-code-reviewer.md
-looper settings set reviewer_agent ~/.claude/agents/rails-code-reviewer.md
 ```
 
 If either file is missing when you run `looper implement`, you will be warned and prompted to confirm before the loop runs.
+
+The tool was originally built using patterns from the [dgalarza/claude-code-workflows](https://github.com/dgalarza/claude-code-workflows) collection as a baseline.
 
 ## Safety guarantees
 
