@@ -83,8 +83,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not determine ticket — pass TICKET as an argument")
 	}
 
-	// Warn if skill files are missing — same as implement.
-	// Prompt for confirmation if any are absent (unless --yes is set via global flags).
+	// Invariant: skill files are checked and user is prompted if missing (same as implement).
 	skillPath := config.ExpandPath(cfg.SkillPath)
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
 
