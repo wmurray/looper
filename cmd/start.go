@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -86,7 +87,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	loadDotEnv(".env")
+	dotEnvPath := ".env"
+	if repoRoot, err := git.RepoRoot(); err == nil {
+		dotEnvPath = filepath.Join(repoRoot, ".env")
+	}
+	loadDotEnv(dotEnvPath)
 	linearAPIKey := os.Getenv("LINEAR_API_KEY")
 	if linearAPIKey == "" {
 		return fmt.Errorf("Linear API key not found - please add LINEAR_API_KEY to your .env file")
@@ -347,11 +352,19 @@ func runStart(cmd *cobra.Command, args []string) error {
 	return loopErr
 }
 
-// loadDotEnv reads KEY=VALUE pairs from path and sets any that are not already
-// in the environment. It is a no-op when the file does not exist.
 func loadDotEnv(path string) {
+	loadDotEnvWithWarn(path, func(msg string) { ui.Warn("%s", msg) })
+}
+
+// loadDotEnvWithWarn reads KEY=VALUE pairs from path and sets any that are not
+// already in the environment. It is a no-op when the file does not exist.
+// warn is called for read errors other than ErrNotExist.
+func loadDotEnvWithWarn(path string, warn func(string)) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			warn(fmt.Sprintf("could not read .env file %s: %v", path, err))
+		}
 		return
 	}
 	for _, line := range strings.Split(string(data), "\n") {
@@ -365,10 +378,13 @@ func loadDotEnv(path string) {
 		}
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
-		if key == "" || os.Getenv(key) != "" {
+		if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+			value = value[1 : len(value)-1]
+		}
+		if _, present := os.LookupEnv(key); key == "" || present {
 			continue
 		}
-		// Invariant: only sets variables that are absent so the real environment always wins.
+		// Invariant: only sets variables absent from the environment; even an explicit empty var wins.
 		_ = os.Setenv(key, value)
 	}
 }
