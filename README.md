@@ -14,6 +14,7 @@ It was 100% vibe-coded, written for personal use under specific conditions — a
 
 - **Go 1.21+** — for building from source
 - **`claude` CLI** (Claude Code) or **Cursor's `agent` CLI** — the backend agent that executes plans
+- **Linear MCP** - Optional-ish. `looper start` will use the Linear MCP to query for the passed ticket number. You can use `looper plan` and `looper implement` to manually create/execute a plan.
 
 ## Installation
 

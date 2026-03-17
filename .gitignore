@@ -10,3 +10,5 @@ looper
 # Generated files (created at runtime, per-project)
 *_PROGRESS.md
 *_PLAN.md
+
+# loop.sh
