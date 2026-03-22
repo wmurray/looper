@@ -63,7 +63,7 @@ Steps:
   4. Resolve the plan: read from a looper-plan comment, or generate via AI
   5. Post the plan as a comment on the Linear ticket, then run the implement loop
 
-Requires LINEAR_API_KEY in the environment or a .env file in the project root.`,
+Requires LINEAR_API_KEY in the environment, .env, or .env.local in the project root.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runStart,
 }
@@ -87,14 +87,17 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	dotEnvPath := ".env"
+	var dotEnvPaths []string
 	if repoRoot, err := git.RepoRoot(); err == nil {
-		dotEnvPath = filepath.Join(repoRoot, ".env")
+		dotEnvPaths = []string{
+			filepath.Join(repoRoot, ".env"),
+			filepath.Join(repoRoot, ".env.local"),
+		}
 	}
-	loadDotEnv(dotEnvPath)
+	loadDotEnvPaths(dotEnvPaths)
 	linearAPIKey := os.Getenv("LINEAR_API_KEY")
 	if linearAPIKey == "" {
-		return fmt.Errorf("Linear API key not found - please add LINEAR_API_KEY to your .env file")
+		return fmt.Errorf("Linear API key not found - please add LINEAR_API_KEY to .env or .env.local")
 	}
 
 	// Why: validate pattern before hitting the network to avoid a wasted API round-trip.
@@ -354,6 +357,50 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 func loadDotEnv(path string) {
 	loadDotEnvWithWarn(path, func(msg string) { ui.Warn("%s", msg) })
+}
+
+func loadDotEnvPaths(paths []string) {
+	loadDotEnvPathsWithWarn(paths, func(msg string) { ui.Warn("%s", msg) })
+}
+
+// loadDotEnvPathsWithWarn loads KEY=VALUE pairs from multiple paths in order,
+// with later paths overriding earlier ones. Pre-existing environment variables
+// always take precedence. Missing files are no-ops.
+func loadDotEnvPathsWithWarn(paths []string, warn func(string)) {
+	preExisting := make(map[string]bool)
+	for _, pair := range os.Environ() {
+		key, _, _ := strings.Cut(pair, "=")
+		preExisting[key] = true
+	}
+
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				warn(fmt.Sprintf("could not read .env file %s: %v", path, err))
+			}
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			key, value, ok := strings.Cut(line, "=")
+			if !ok {
+				continue
+			}
+			key = strings.TrimSpace(key)
+			value = strings.TrimSpace(value)
+			if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+				value = value[1 : len(value)-1]
+			}
+			if key == "" || preExisting[key] {
+				continue
+			}
+			_ = os.Setenv(key, value)
+		}
+	}
 }
 
 // loadDotEnvWithWarn reads KEY=VALUE pairs from path and sets any that are not

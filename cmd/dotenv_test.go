@@ -93,12 +93,61 @@ func TestLoadDotEnv_PermissionErrorIsReported(t *testing.T) {
 	}
 }
 
+func TestLoadDotEnvLocal_OverridesBaseEnv(t *testing.T) {
+	envBase := writeTempDotEnv(t, "DOTENV_OVERRIDE_KEY=from_base\nDOTENV_BASE_ONLY=base_value")
+	envLocal := writeTempDotEnvNamed(t, ".env.local", "DOTENV_OVERRIDE_KEY=from_local")
+	t.Cleanup(func() { os.Unsetenv("DOTENV_OVERRIDE_KEY"); os.Unsetenv("DOTENV_BASE_ONLY") })
+
+	loadDotEnvPaths([]string{envBase, envLocal})
+
+	if got := os.Getenv("DOTENV_OVERRIDE_KEY"); got != "from_local" {
+		t.Errorf("override: got %q, want %q", got, "from_local")
+	}
+	if got := os.Getenv("DOTENV_BASE_ONLY"); got != "base_value" {
+		t.Errorf("base_only: got %q, want %q", got, "base_value")
+	}
+}
+
+func TestLoadDotEnvLocal_EnvVarWinsOverBoth(t *testing.T) {
+	t.Setenv("DOTENV_WINS_BOTH_KEY", "from_env")
+	envBase := writeTempDotEnv(t, "DOTENV_WINS_BOTH_KEY=from_base")
+	envLocal := writeTempDotEnvNamed(t, ".env.local", "DOTENV_WINS_BOTH_KEY=from_local")
+
+	loadDotEnvPaths([]string{envBase, envLocal})
+
+	if got := os.Getenv("DOTENV_WINS_BOTH_KEY"); got != "from_env" {
+		t.Errorf("got %q, want env value %q", got, "from_env")
+	}
+}
+
+func TestLoadDotEnvLocal_SkipsMissingFiles(t *testing.T) {
+	envBase := writeTempDotEnv(t, "DOTENV_EXISTS_KEY=exists")
+	envLocal := filepath.Join(t.TempDir(), "no_such.env.local")
+	t.Cleanup(func() { os.Unsetenv("DOTENV_EXISTS_KEY") })
+
+	loadDotEnvPaths([]string{envBase, envLocal})
+
+	if got := os.Getenv("DOTENV_EXISTS_KEY"); got != "exists" {
+		t.Errorf("got %q, want %q", got, "exists")
+	}
+}
+
 func writeTempDotEnv(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".env")
 	if err := os.WriteFile(path, []byte(fmt.Sprintf("%s\n", content)), 0600); err != nil {
 		t.Fatalf("writeTempDotEnv: %v", err)
+	}
+	return path
+}
+
+func writeTempDotEnvNamed(t *testing.T, name string, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(fmt.Sprintf("%s\n", content)), 0600); err != nil {
+		t.Fatalf("writeTempDotEnvNamed: %v", err)
 	}
 	return path
 }

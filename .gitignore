@@ -11,4 +11,8 @@ looper
 *_PROGRESS.md
 *_PLAN.md
 
+# Environment files
+.env
+.env.local
+
 # loop.sh
