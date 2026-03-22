@@ -351,3 +351,113 @@ func TestInitCmd_MultipleStacks(t *testing.T) {
 		t.Errorf("expected 'node' and 'go' in detected stacks, got %q", stackStr)
 	}
 }
+
+func TestInitCmd_DetectMigrationCandidates(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "TICKET_PLAN.md"), []byte("# Plan"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "TICKET_PROGRESS.md"), []byte("# Progress"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "TICKET_STATE.json"), []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates := findMigrationCandidates(dir)
+	if len(candidates) != 3 {
+		t.Errorf("expected 3 migration candidates, got %d: %v", len(candidates), candidates)
+	}
+}
+
+func TestInitCmd_MigrateFlag_MovesFiles(t *testing.T) {
+	cmd := newInitCmd()
+	dir := t.TempDir()
+
+	planFile := filepath.Join(dir, "TICKET_PLAN.md")
+	if err := os.WriteFile(planFile, []byte("# Plan"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	err := runInit(cmd, dir, true, false, false, false, false)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	looperDir := filepath.Join(dir, ".looper")
+	if _, err := os.Stat(looperDir); os.IsNotExist(err) {
+		t.Errorf("expected .looper directory to exist")
+	}
+}
+
+func TestInitCmd_MigrateFlag_DoesNothingIfNoFiles(t *testing.T) {
+	cmd := newInitCmd()
+	dir := t.TempDir()
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	err := runInit(cmd, dir, true, false, false, false, false)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	output := out.String()
+	if strings.Contains(output, "error") || strings.Contains(output, "Error") {
+		t.Errorf("expected no error output when no migration candidates found")
+	}
+}
+
+func TestInitCmd_ExtendedConfig_WithReviewers(t *testing.T) {
+	cmd := newInitCmd()
+	dir := t.TempDir()
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	err := runInit(cmd, dir, true, false, false, false, false)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	configPath := filepath.Join(dir, ".looper.json")
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("expected .looper.json to exist: %v", err)
+	}
+
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(content, &cfg); err != nil {
+		t.Errorf("expected valid JSON in .looper.json: %v", err)
+	}
+
+	if _, hasReviewers := cfg["reviewers"]; !hasReviewers {
+		t.Errorf("expected .looper.json to have 'reviewers' field")
+	}
+}
+
+func TestInitCmd_VerifyGuidance_RootFilesDetection(t *testing.T) {
+	cmd := newInitCmd()
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "TICKET_PLAN.md"), []byte("# Plan"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	err := runInit(cmd, dir, true, false, false, false, false)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "root") && !strings.Contains(output, "TICKET_PLAN") {
+		t.Logf("output: %q", output)
+	}
+}

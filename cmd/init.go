@@ -78,6 +78,10 @@ func runInit(cmd *cobra.Command, repoRoot string, yes, skipGitignore, configOnly
 		}
 	}
 
+	if !dryRun {
+		verifyAndGuide(out, repoRoot)
+	}
+
 	if dryRun {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "✓ DRY RUN complete. No files were modified.")
@@ -182,6 +186,9 @@ func createLooperConfig(cmd *cobra.Command, out io.Writer, repoRoot string, yes,
 			"cycles":  5,
 			"timeout": 420,
 		},
+		"reviewers": map[string]interface{}{
+			"general": "",
+		},
 	}
 
 	if stack != "" {
@@ -250,4 +257,43 @@ func getStackDescription(repoRoot string) string {
 	}
 
 	return strings.Join(names, " + ")
+}
+
+func findMigrationCandidates(repoRoot string) []string {
+	patterns := []string{
+		"*_PLAN.md",
+		"*_PROGRESS.md",
+		"*_STATE.json",
+	}
+
+	var candidates []string
+	seen := make(map[string]bool)
+
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(filepath.Join(repoRoot, pattern))
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			base := filepath.Base(match)
+			if !seen[base] {
+				candidates = append(candidates, base)
+				seen[base] = true
+			}
+		}
+	}
+
+	return candidates
+}
+
+func verifyAndGuide(out io.Writer, repoRoot string) {
+	candidates := findMigrationCandidates(repoRoot)
+	if len(candidates) > 0 {
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "• Detected root-level looper files:")
+		for _, f := range candidates {
+			fmt.Fprintf(out, "  - %s\n", f)
+		}
+		fmt.Fprintln(out, "  Run 'looper init --migrate' to move these to .looper/ structure")
+	}
 }

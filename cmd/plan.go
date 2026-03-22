@@ -73,7 +73,10 @@ Use --open to open the file in $EDITOR after creation.`,
 			}
 		}
 
-		filename := ticket + "_PLAN.md"
+		filename, err := resolvePlanPath(ticket)
+		if err != nil {
+			return err
+		}
 
 		if _, err := os.Stat(filename); err == nil {
 			if planPromptFlag != "" {
@@ -178,6 +181,9 @@ func planTemplateBytes(ticket string) []byte {
 }
 
 func writePlanTemplate(filename, ticket string) error {
+	if err := os.MkdirAll(filepath.Dir(filename), 0755); err != nil {
+		return err
+	}
 	return os.WriteFile(filename, planTemplateBytes(ticket), planFileMode)
 }
 
@@ -230,4 +236,16 @@ func openInEditor(filename string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func resolvePlanPath(ticket string) (string, error) {
+	newPath := filepath.Join(".looper", ticket, ticket+"_PLAN.md")
+	if _, err := os.Stat(newPath); err == nil {
+		return newPath, nil
+	}
+
+	looperDir := filepath.Join(".looper", ticket)
+	os.MkdirAll(looperDir, 0755)
+
+	return newPath, nil
 }
