@@ -51,12 +51,18 @@ looper start IMP-123 --review-every 2  # run reviewer every N cycles
 looper start IMP-123 --notify     # send desktop notification on completion
 ```
 
-Requires `LINEAR_API_KEY` in the environment or a `.env` file in the project root:
+Requires `LINEAR_API_KEY` in the environment, `.env`, or `.env.local`:
 
 ```bash
-echo "LINEAR_API_KEY=lin_api_..." >> .env
-# or: export LINEAR_API_KEY=lin_api_...
+# Copy the example file and add your key
+cp .env.example .env.local
+# Then edit .env.local and add your Linear API key
+
+# Or set via environment variable
+export LINEAR_API_KEY=lin_api_...
 ```
+
+The `.env` file serves as a committed configuration template. Use `.env.local` for your local overrides and secrets — it is gitignored. Environment variables take precedence over both files.
 
 Linear integration is optional — it is only used by `looper start`. All other commands work without it.
 

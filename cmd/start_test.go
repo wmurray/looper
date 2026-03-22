@@ -87,7 +87,7 @@ func TestRunStart_MissingLinearAPIKey_ReturnsEnvVarError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when LINEAR_API_KEY is unset")
 	}
-	const want = "Linear API key not found - please add LINEAR_API_KEY to your .env file"
+	const want = "Linear API key not found - please add LINEAR_API_KEY to .env or .env.local"
 	if !strings.Contains(err.Error(), want) {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
 	}
