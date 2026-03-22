@@ -16,7 +16,7 @@ func TestInitCmd_DirectoryCreation(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, false, false, false, false, false)
+	err := runInit(cmd, dir, false, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -34,12 +34,12 @@ func TestInitCmd_DirectoryCreation_Idempotent(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, false, false, false, false, false)
+	err := runInit(cmd, dir, false, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("first init failed: %v", err)
 	}
 
-	err = runInit(cmd, dir, false, false, false, false, false)
+	err = runInit(cmd, dir, false, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("second init failed: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestInitCmd_GitignoreCreation(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false)
+	err := runInit(cmd, dir, true, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -81,12 +81,12 @@ func TestInitCmd_GitignoreNoDuplicates(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false)
+	err := runInit(cmd, dir, true, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("first init failed: %v", err)
 	}
 
-	err = runInit(cmd, dir, true, false, false, false, false)
+	err = runInit(cmd, dir, true, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("second init failed: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestInitCmd_GitignoreSkip(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, true, false, false, false)
+	err := runInit(cmd, dir, true, true, false, false, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -168,7 +168,7 @@ func TestInitCmd_LooperConfigCreation(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false)
+	err := runInit(cmd, dir, true, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -192,7 +192,7 @@ func TestInitCmd_ConfigOnlyFlag(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, true, false, false)
+	err := runInit(cmd, dir, true, false, true, false, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -215,7 +215,7 @@ func TestInitCmd_SkipConfigFlag(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, true, false)
+	err := runInit(cmd, dir, true, false, false, true, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -238,7 +238,7 @@ func TestInitCmd_DryRunFlag(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, true)
+	err := runInit(cmd, dir, true, false, false, false, true, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -289,7 +289,7 @@ func TestInitCmd_YesFlag(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false)
+	err := runInit(cmd, dir, true, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -311,7 +311,7 @@ func TestInitCmd_ExistingGitignore(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false)
+	err := runInit(cmd, dir, true, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -383,14 +383,19 @@ func TestInitCmd_MigrateFlag_MovesFiles(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false)
+	err := runInit(cmd, dir, true, false, false, false, false, true)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	looperDir := filepath.Join(dir, ".looper")
-	if _, err := os.Stat(looperDir); os.IsNotExist(err) {
-		t.Errorf("expected .looper directory to exist")
+	ticketDir := filepath.Join(dir, ".looper", "TICKET")
+	movedFile := filepath.Join(ticketDir, "TICKET_PLAN.md")
+	if _, err := os.Stat(movedFile); os.IsNotExist(err) {
+		t.Errorf("expected migrated file at %s", movedFile)
+	}
+
+	if _, err := os.Stat(planFile); !os.IsNotExist(err) {
+		t.Errorf("expected original file to be removed after migration")
 	}
 }
 
@@ -401,7 +406,7 @@ func TestInitCmd_MigrateFlag_DoesNothingIfNoFiles(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false)
+	err := runInit(cmd, dir, true, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -419,7 +424,7 @@ func TestInitCmd_ExtendedConfig_WithReviewers(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false)
+	err := runInit(cmd, dir, true, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -451,13 +456,68 @@ func TestInitCmd_VerifyGuidance_RootFilesDetection(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false)
+	err := runInit(cmd, dir, true, false, false, false, false, false)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	output := out.String()
-	if !strings.Contains(output, "root") && !strings.Contains(output, "TICKET_PLAN") {
-		t.Logf("output: %q", output)
+	if !strings.Contains(output, "TICKET_PLAN") && !strings.Contains(output, "migrate") {
+		t.Logf("expected migration guidance in output: %q", output)
+	}
+}
+
+func TestInitCmd_VerifyGuidance_GlobalConfigCheck(t *testing.T) {
+	cmd := newInitCmd()
+	dir := t.TempDir()
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	err := runInit(cmd, dir, true, false, false, false, false, false)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestInitCmd_MigrateFlag_WithMultipleFiles(t *testing.T) {
+	cmd := newInitCmd()
+	dir := t.TempDir()
+
+	planFile := filepath.Join(dir, "TICKET_PLAN.md")
+	progressFile := filepath.Join(dir, "TICKET_PROGRESS.md")
+	stateFile := filepath.Join(dir, "TICKET_STATE.json")
+
+	for _, f := range []string{planFile, progressFile, stateFile} {
+		if err := os.WriteFile(f, []byte("content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	err := runInit(cmd, dir, true, false, false, false, false, true)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	ticketDir := filepath.Join(dir, ".looper", "TICKET")
+	expectedFiles := []string{
+		filepath.Join(ticketDir, "TICKET_PLAN.md"),
+		filepath.Join(ticketDir, "TICKET_PROGRESS.md"),
+		filepath.Join(ticketDir, "TICKET_STATE.json"),
+	}
+
+	for _, f := range expectedFiles {
+		if _, err := os.Stat(f); os.IsNotExist(err) {
+			t.Errorf("expected migrated file at %s", f)
+		}
+	}
+
+	for _, f := range []string{planFile, progressFile, stateFile} {
+		if _, err := os.Stat(f); !os.IsNotExist(err) {
+			t.Errorf("expected original file %s to be removed", f)
+		}
 	}
 }

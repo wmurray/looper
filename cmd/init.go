@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/willmurray/looper/internal/discover"
 	"github.com/willmurray/looper/internal/ui"
 )
 
@@ -45,14 +46,15 @@ The command is idempotent and safe to run multiple times.`,
 		configOnly, _ := c.Flags().GetBool("config-only")
 		skipConfig, _ := c.Flags().GetBool("skip-config")
 		dryRun, _ := c.Flags().GetBool("dry-run")
+		migrateFlag, _ := c.Flags().GetBool("migrate")
 
-		return runInit(c, ".", yesFlag, skipGitignore, configOnly, skipConfig, dryRun)
+		return runInit(c, ".", yesFlag, skipGitignore, configOnly, skipConfig, dryRun, migrateFlag)
 	}
 
 	return cmd
 }
 
-func runInit(cmd *cobra.Command, repoRoot string, yes, skipGitignore, configOnly, skipConfig, dryRun bool) error {
+func runInit(cmd *cobra.Command, repoRoot string, yes, skipGitignore, configOnly, skipConfig, dryRun, migrate bool) error {
 	out := cmd.OutOrStdout()
 
 	if dryRun {
@@ -74,6 +76,12 @@ func runInit(cmd *cobra.Command, repoRoot string, yes, skipGitignore, configOnly
 
 	if !skipConfig {
 		if err := createLooperConfig(cmd, out, repoRoot, yes, dryRun); err != nil {
+			return err
+		}
+	}
+
+	if migrate {
+		if err := migrateRootFiles(cmd, out, repoRoot, yes, dryRun); err != nil {
 			return err
 		}
 	}
@@ -286,7 +294,104 @@ func findMigrationCandidates(repoRoot string) []string {
 	return candidates
 }
 
+func migrateRootFiles(cmd *cobra.Command, out io.Writer, repoRoot string, yes, dryRun bool) error {
+	candidates := findMigrationCandidates(repoRoot)
+	if len(candidates) == 0 {
+		fmt.Fprintf(out, "✓ No root-level looper files found to migrate\n")
+		return nil
+	}
+
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "Found %d file(s) to migrate:\n", len(candidates))
+	for _, f := range candidates {
+		fmt.Fprintf(out, "  • %s\n", f)
+	}
+
+	if !yes && !dryRun {
+		fmt.Fprintf(out, "\nMigrate these files to .looper/:ticket/? [y/N] ")
+		scanner := bufio.NewScanner(cmd.InOrStdin())
+		if !scanner.Scan() {
+			fmt.Fprintln(out, "Skipped.")
+			return nil
+		}
+		answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+		if answer != "y" && answer != "yes" {
+			fmt.Fprintln(out, "Skipped.")
+			return nil
+		}
+	}
+
+	if dryRun {
+		fmt.Fprintf(out, "→ Would migrate %d file(s) to .looper/ structure\n", len(candidates))
+		return nil
+	}
+
+	for _, candidate := range candidates {
+		if err := moveFileToLooperStructure(repoRoot, candidate); err != nil {
+			return fmt.Errorf("failed to migrate %s: %w", candidate, err)
+		}
+		fmt.Fprintf(out, "✓ Migrated %s\n", candidate)
+	}
+
+	return nil
+}
+
+func moveFileToLooperStructure(repoRoot, filename string) error {
+	srcPath := filepath.Join(repoRoot, filename)
+
+	parts := strings.Split(filename, "_")
+	if len(parts) < 2 {
+		return fmt.Errorf("cannot determine ticket from filename: %s", filename)
+	}
+	ticket := parts[0]
+
+	ticketDir := filepath.Join(repoRoot, ".looper", ticket)
+	if err := os.MkdirAll(ticketDir, 0755); err != nil {
+		return err
+	}
+
+	dstPath := filepath.Join(ticketDir, filename)
+
+	content, err := os.ReadFile(srcPath)
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(dstPath, content, 0644); err != nil {
+		return err
+	}
+
+	return os.Remove(srcPath)
+}
+
 func verifyAndGuide(out io.Writer, repoRoot string) {
+	home, err := os.UserHomeDir()
+	if err == nil {
+		globalCfgPath := filepath.Join(home, ".config", "looper", "config.json")
+		if _, err := os.Stat(globalCfgPath); os.IsNotExist(err) {
+			fmt.Fprintln(out)
+			fmt.Fprintln(out, "• Global config not found")
+			fmt.Fprintf(out, "  Initialize with: looper settings set backend claude\n")
+		}
+	}
+
+	if home != "" {
+		available, err := discover.Scan(home)
+		if err == nil && len(available) > 0 {
+			agents := 0
+			for _, f := range available {
+				if f.Kind == discover.KindAgent {
+					agents++
+				}
+			}
+			if agents > 0 {
+				fmt.Fprintln(out)
+				fmt.Fprintf(out, "• Found %d agent(s) available\n", agents)
+				fmt.Fprintf(out, "  Run 'looper settings discover --ai' to configure reviewers\n")
+			}
+		}
+	}
+
 	candidates := findMigrationCandidates(repoRoot)
 	if len(candidates) > 0 {
 		fmt.Fprintln(out)
