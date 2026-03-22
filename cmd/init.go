@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -56,6 +58,10 @@ The command is idempotent and safe to run multiple times.`,
 
 func runInit(cmd *cobra.Command, repoRoot string, yes, skipGitignore, configOnly, skipConfig, dryRun, migrate bool) error {
 	out := cmd.OutOrStdout()
+
+	if configOnly && skipConfig {
+		return fmt.Errorf("cannot use --config-only and --skip-config together")
+	}
 
 	if dryRun {
 		fmt.Fprintln(out, "→ DRY RUN: no changes will be applied")
@@ -277,6 +283,11 @@ func findMigrationCandidates(repoRoot string) []string {
 	var candidates []string
 	seen := make(map[string]bool)
 
+	// Regex to match ticket ID format: either short IDs (1-4 uppercase letters) or hyphenated format (with numbers)
+	// Examples: IMP, TEST, ABC (1-4 chars) or IMP-123, LIN-456, TICKET-1 (any length with hyphen-number)
+	// This avoids matching long dictionary words like DATABASE_PLAN.md
+	ticketIDRegex := regexp.MustCompile(`^([A-Z]{1,4}(?:-[0-9]+)?|[A-Z][A-Z0-9]*-[0-9]+)_`)
+
 	for _, pattern := range patterns {
 		matches, err := filepath.Glob(filepath.Join(repoRoot, pattern))
 		if err != nil {
@@ -284,7 +295,8 @@ func findMigrationCandidates(repoRoot string) []string {
 		}
 		for _, match := range matches {
 			base := filepath.Base(match)
-			if !seen[base] {
+			// Only include files that match the ticket ID pattern
+			if ticketIDRegex.MatchString(base) && !seen[base] {
 				candidates = append(candidates, base)
 				seen[base] = true
 			}
@@ -339,11 +351,13 @@ func migrateRootFiles(cmd *cobra.Command, out io.Writer, repoRoot string, yes, d
 func moveFileToLooperStructure(repoRoot, filename string) error {
 	srcPath := filepath.Join(repoRoot, filename)
 
-	parts := strings.Split(filename, "_")
-	if len(parts) < 2 {
+	// Extract ticket ID using regex to handle hyphenated IDs like IMP-123
+	re := regexp.MustCompile(`^([A-Z][A-Z0-9]*(?:-[0-9]+)?)_`)
+	matches := re.FindStringSubmatch(filename)
+	if len(matches) < 2 {
 		return fmt.Errorf("cannot determine ticket from filename: %s", filename)
 	}
-	ticket := parts[0]
+	ticket := matches[1]
 
 	ticketDir := filepath.Join(repoRoot, ".looper", ticket)
 	if err := os.MkdirAll(ticketDir, 0755); err != nil {
@@ -367,7 +381,12 @@ func moveFileToLooperStructure(repoRoot, filename string) error {
 func verifyAndGuide(out io.Writer, repoRoot string) {
 	home, err := os.UserHomeDir()
 	if err == nil {
-		globalCfgPath := filepath.Join(home, ".config", "looper", "config.json")
+		var globalCfgPath string
+		if runtime.GOOS == "darwin" {
+			globalCfgPath = filepath.Join(home, "Library", "Application Support", "looper", "config.json")
+		} else {
+			globalCfgPath = filepath.Join(home, ".config", "looper", "config.json")
+		}
 		if _, err := os.Stat(globalCfgPath); os.IsNotExist(err) {
 			fmt.Fprintln(out)
 			fmt.Fprintln(out, "• Global config not found")
