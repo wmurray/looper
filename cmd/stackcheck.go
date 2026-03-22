@@ -58,10 +58,23 @@ func warnOnStackMismatch(projectDir, reviewerBasename string) {
 }
 
 func detectStack(projectDir string) string {
+	stacks := detectAllStacks(projectDir)
+	if len(stacks) == 0 {
+		return ""
+	}
+	return stacks[0]
+}
+
+func detectAllStacks(projectDir string) []string {
+	var stacks []string
+	seen := make(map[string]bool)
 	for _, ind := range stackIndicators {
 		if _, err := os.Stat(filepath.Join(projectDir, ind.file)); err == nil {
-			return ind.keyword
+			if !seen[ind.keyword] {
+				stacks = append(stacks, ind.keyword)
+				seen[ind.keyword] = true
+			}
 		}
 	}
-	return ""
+	return stacks
 }
