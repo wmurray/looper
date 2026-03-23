@@ -69,7 +69,7 @@ looper init --migrate   # move existing root-level plan/progress/state files to 
     └── TICKET_STATE.json   # Execution state (internal)
 ```
 
-Files are organized by ticket ID under `.looper/` for clean repository structure and easy discovery. The old root-level locations (`*_PLAN.md` at repo root) still work for backwards compatibility.
+**Note on file locations:** Plan files are written to `.looper/:ticket/` by default. Progress and state files will move there too in an upcoming update — existing root-level files continue to work in the meantime. Use `looper init --migrate` to relocate existing files manually.
 
 **Configuration (`looper.json`):**
 

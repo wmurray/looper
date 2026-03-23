@@ -121,7 +121,7 @@ func createLooperDir(out io.Writer, repoRoot string, dryRun bool) error {
 	}
 
 	if err := os.MkdirAll(looperDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .looper directory: %w", err)
+		return fmt.Errorf("failed to create .looper directory (check write permissions): %w", err)
 	}
 
 	fmt.Fprintf(out, "✓ Created .looper/ directory\n")
@@ -138,7 +138,7 @@ func setupGitignore(cmd *cobra.Command, out io.Writer, repoRoot string, yes, dry
 		var err error
 		content, err = os.ReadFile(gitignorePath)
 		if err != nil {
-			return fmt.Errorf("failed to read .gitignore: %w", err)
+			return fmt.Errorf("failed to read .gitignore (check file permissions): %w", err)
 		}
 
 		if strings.Contains(string(content), looperPattern) {
@@ -178,7 +178,7 @@ func setupGitignore(cmd *cobra.Command, out io.Writer, repoRoot string, yes, dry
 	}
 
 	if err := os.WriteFile(gitignorePath, []byte(newContent), 0644); err != nil {
-		return fmt.Errorf("failed to write .gitignore: %w", err)
+		return fmt.Errorf("failed to write .gitignore (check write permissions): %w", err)
 	}
 
 	fmt.Fprintf(out, "✓ Updated .gitignore\n")
@@ -237,7 +237,7 @@ func createLooperConfig(cmd *cobra.Command, out io.Writer, repoRoot string, yes,
 	}
 
 	if err := os.WriteFile(configPath, jsonData, 0644); err != nil {
-		return fmt.Errorf("failed to write .looper.json: %w", err)
+		return fmt.Errorf("failed to write .looper.json (check write permissions): %w", err)
 	}
 
 	fmt.Fprintf(out, "✓ Created .looper.json\n")
