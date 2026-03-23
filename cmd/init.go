@@ -283,9 +283,7 @@ func findMigrationCandidates(repoRoot string) []string {
 	var candidates []string
 	seen := make(map[string]bool)
 
-	// Regex to match ticket ID format: either short IDs (1-4 uppercase letters) or hyphenated format (with numbers)
-	// Examples: IMP, TEST, ABC (1-4 chars) or IMP-123, LIN-456, TICKET-1 (any length with hyphen-number)
-	// This avoids matching long dictionary words like DATABASE_PLAN.md
+	// Gotcha: Matches ticket format (IMP or IMP-123) but rejects words like DATABASE_PLAN.md.
 	ticketIDRegex := regexp.MustCompile(`^([A-Z]{1,4}(?:-[0-9]+)?|[A-Z][A-Z0-9]*-[0-9]+)_`)
 
 	for _, pattern := range patterns {
@@ -295,7 +293,6 @@ func findMigrationCandidates(repoRoot string) []string {
 		}
 		for _, match := range matches {
 			base := filepath.Base(match)
-			// Only include files that match the ticket ID pattern
 			if ticketIDRegex.MatchString(base) && !seen[base] {
 				candidates = append(candidates, base)
 				seen[base] = true
@@ -351,7 +348,6 @@ func migrateRootFiles(cmd *cobra.Command, out io.Writer, repoRoot string, yes, d
 func moveFileToLooperStructure(repoRoot, filename string) error {
 	srcPath := filepath.Join(repoRoot, filename)
 
-	// Extract ticket ID using regex to handle hyphenated IDs like IMP-123
 	re := regexp.MustCompile(`^([A-Z][A-Z0-9]*(?:-[0-9]+)?)_`)
 	matches := re.FindStringSubmatch(filename)
 	if len(matches) < 2 {
