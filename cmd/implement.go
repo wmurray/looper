@@ -295,6 +295,7 @@ func buildMetadataMap(r *config.Reviewers) map[string]agent.Metadata {
 			continue
 		}
 		md.Path = expanded
+		// Invariant: keys are always unexpanded paths; callers must not expand before passing to SelectReviewers.
 		m[p] = md
 	}
 	return m
@@ -488,7 +489,7 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 			})
 
 			threshold := config.EffectiveReviewStrategy(cfg).MajorityThreshold
-			approved := len(reviewerPaths) > 0 && float64(approvals)/float64(len(reviewerPaths)) >= threshold
+			approved := selector.MajorityApproved(approvals, len(reviewerPaths), threshold)
 			if approved {
 				_ = pw.WriteSuccess(i)
 				_ = pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
@@ -520,7 +521,6 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 				UpdatedAt:      time.Now().UTC(),
 			})
 		}
-
 
 		fmt.Println()
 	}

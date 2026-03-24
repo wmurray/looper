@@ -101,6 +101,7 @@ func (s State) Validate() error {
 
 // Delete removes the state file for the given ticket from both NewPath and legacy Path.
 // It is a no-op if neither file exists, making it safe to call unconditionally.
+// Gotcha: stops at the first non-ErrNotExist error; the legacy path is left intact if NewPath removal fails.
 func Delete(ticket string) error {
 	for _, p := range []string{NewPath(ticket), Path(ticket)} {
 		err := os.Remove(p)

@@ -54,6 +54,12 @@ func SelectReviewers(
 	}
 }
 
+// MajorityApproved reports whether approvals out of total reviewers meets threshold.
+// Returns false when total is zero to prevent division by zero.
+func MajorityApproved(approvals, total int, threshold float64) bool {
+	return total > 0 && float64(approvals)/float64(total) >= threshold
+}
+
 func includeSpecialized(
 	path string,
 	strategy config.ReviewStrategy,

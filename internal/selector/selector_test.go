@@ -92,24 +92,23 @@ func TestSelectReviewersDedup(t *testing.T) {
 	}
 }
 
-func TestSelectReviewersMajorityVote(t *testing.T) {
-	// Not a SelectReviewers test per se, but validates the threshold math
-	// used by callers: 2/3 >= 0.6 is true, 1/3 >= 0.6 is false.
+func TestMajorityApproved(t *testing.T) {
 	t.Parallel()
-	threshold := 0.6
 	cases := []struct {
 		approvals, total int
+		threshold        float64
 		want             bool
 	}{
-		{2, 3, true},
-		{1, 3, false},
-		{3, 3, true},
-		{0, 3, false},
+		{2, 3, 0.6, true},
+		{1, 3, 0.6, false},
+		{3, 3, 0.6, true},
+		{0, 3, 0.6, false},
+		{0, 0, 0.6, false}, // no reviewers → not approved
 	}
 	for _, tc := range cases {
-		got := float64(tc.approvals)/float64(tc.total) >= threshold
+		got := selector.MajorityApproved(tc.approvals, tc.total, tc.threshold)
 		if got != tc.want {
-			t.Errorf("%d/%d >= %.1f: got %v, want %v", tc.approvals, tc.total, threshold, got, tc.want)
+			t.Errorf("MajorityApproved(%d, %d, %.1f) = %v, want %v", tc.approvals, tc.total, tc.threshold, got, tc.want)
 		}
 	}
 }

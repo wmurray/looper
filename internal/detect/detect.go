@@ -8,7 +8,8 @@ import (
 
 // Detection holds the set of languages inferred from changed files.
 type Detection struct {
-	Languages  []string
+	Languages []string
+	// TODO: framework detection not yet implemented; field is always empty.
 	Frameworks []string
 }
 

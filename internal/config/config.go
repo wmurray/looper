@@ -204,6 +204,14 @@ func applyRepoOverlay(dst, src Config) (Config, []string) {
 		dst.ReviewEvery = src.ReviewEvery
 		keys = append(keys, "review_every")
 	}
+	if src.Reviewers != nil {
+		dst.Reviewers = src.Reviewers
+		keys = append(keys, "reviewers")
+	}
+	if src.ReviewStrategy != nil {
+		dst.ReviewStrategy = src.ReviewStrategy
+		keys = append(keys, "review_strategy")
+	}
 	return dst, keys
 }
 

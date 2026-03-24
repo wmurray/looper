@@ -1039,7 +1039,64 @@ func TestLoadWithRepo_RepoConfigOverridesCycles(t *testing.T) {
 
 // --- MigrateReviewerAgent ---
 
+func TestApplyRepoOverlay_ReviewersOverrides(t *testing.T) {
+	t.Parallel()
+	dst := Config{}
+	src := Config{Reviewers: &Reviewers{General: "new-general.md", Specialized: []string{"spec.md"}}}
+	result, keys := applyRepoOverlay(dst, src)
+	if result.Reviewers == nil || result.Reviewers.General != "new-general.md" {
+		t.Errorf("Reviewers.General = %v, want new-general.md", result.Reviewers)
+	}
+	found := false
+	for _, k := range keys {
+		if k == "reviewers" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("overlay keys = %v, want reviewers to be present", keys)
+	}
+}
+
+func TestApplyRepoOverlay_ReviewStrategyOverrides(t *testing.T) {
+	t.Parallel()
+	dst := Config{}
+	src := Config{ReviewStrategy: &ReviewStrategy{Mode: "always", MajorityThreshold: 0.8}}
+	result, keys := applyRepoOverlay(dst, src)
+	if result.ReviewStrategy == nil || result.ReviewStrategy.Mode != "always" {
+		t.Errorf("ReviewStrategy = %v, want mode=always", result.ReviewStrategy)
+	}
+	found := false
+	for _, k := range keys {
+		if k == "review_strategy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("overlay keys = %v, want review_strategy to be present", keys)
+	}
+}
+
+func TestApplyRepoOverlay_ReviewersNilDoesNotOverride(t *testing.T) {
+	t.Parallel()
+	existing := &Reviewers{General: "existing.md"}
+	dst := Config{Reviewers: existing}
+	src := Config{} // Reviewers is nil
+	result, keys := applyRepoOverlay(dst, src)
+	if result.Reviewers == nil || result.Reviewers.General != "existing.md" {
+		t.Errorf("Reviewers should not be overridden by nil src, got %v", result.Reviewers)
+	}
+	for _, k := range keys {
+		if k == "reviewers" {
+			t.Errorf("overlay keys should not include reviewers when src.Reviewers is nil, got %v", keys)
+		}
+	}
+}
+
+// --- MigrateReviewerAgent ---
+
 func TestMigrateReviewerAgent(t *testing.T) {
+	t.Parallel()
 	cfg := Config{ReviewerAgent: "path/to/agent.md"}
 	MigrateReviewerAgent(&cfg)
 	if cfg.Reviewers == nil {
@@ -1051,6 +1108,7 @@ func TestMigrateReviewerAgent(t *testing.T) {
 }
 
 func TestMigrateNoOp(t *testing.T) {
+	t.Parallel()
 	existing := &Reviewers{General: "other/agent.md"}
 	cfg := Config{ReviewerAgent: "path/to/agent.md", Reviewers: existing}
 	MigrateReviewerAgent(&cfg)
@@ -1102,6 +1160,7 @@ func TestEffectiveReviewStrategyPartial(t *testing.T) {
 }
 
 func TestEffectiveReviewStrategyDefaults(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	s := EffectiveReviewStrategy(cfg)
 	if s.Mode != "smart" {
