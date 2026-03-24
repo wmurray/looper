@@ -10,6 +10,7 @@ var rootCmd = &cobra.Command{
 	Long: `looper runs an automated implement/review cycle against a plan file.
 
 Commands:
+  init        Initialize repository for looper
   start       Fetch a Linear ticket, branch, plan, and implement
   implement   Run the agent loop against a plan file
   polish      Run a post-implementation polish pass (lint + agent tidy)
@@ -22,6 +23,7 @@ func Execute() error {
 }
 
 func init() {
+	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(implementCmd)
 	rootCmd.AddCommand(resumeCmd)

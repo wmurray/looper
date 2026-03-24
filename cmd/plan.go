@@ -41,7 +41,7 @@ Use --open to open the file in $EDITOR after creation.`,
 			return fmt.Errorf("reading --prompt flag: %w", err)
 		}
 
-		// Lazy config loader — loads at most once, only when needed.
+		// Why: Config is expensive to load; defer until needed and cache.
 		var loadedCfg *config.Config
 		getCfg := func() (*config.Config, error) {
 			if loadedCfg != nil {
@@ -73,7 +73,10 @@ Use --open to open the file in $EDITOR after creation.`,
 			}
 		}
 
-		filename := ticket + "_PLAN.md"
+		filename, err := resolvePlanPath(ticket)
+		if err != nil {
+			return err
+		}
 
 		if _, err := os.Stat(filename); err == nil {
 			if planPromptFlag != "" {
@@ -178,6 +181,9 @@ func planTemplateBytes(ticket string) []byte {
 }
 
 func writePlanTemplate(filename, ticket string) error {
+	if err := os.MkdirAll(filepath.Dir(filename), 0755); err != nil {
+		return err
+	}
 	return os.WriteFile(filename, planTemplateBytes(ticket), planFileMode)
 }
 
@@ -207,9 +213,7 @@ Do not add, rename, or reorder sections. Output only the markdown — no preambl
 ## Out of Scope
 - ...`
 
-// buildPlanPrompt substitutes {TICKET} and {PROMPT} into the plan template.
-// strings.NewReplacer does not re-scan its own output, so literal "{TICKET}" or
-// "{PROMPT}" text inside userPrompt will not be expanded a second time.
+// Gotcha: strings.NewReplacer does not re-scan output, so {TICKET} inside userPrompt won't double-expand.
 func buildPlanPrompt(ticket, userPrompt string) string {
 	r := strings.NewReplacer("{TICKET}", ticket, "{PROMPT}", userPrompt)
 	return r.Replace(planPromptTemplate)
@@ -230,4 +234,18 @@ func openInEditor(filename string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func resolvePlanPath(ticket string) (string, error) {
+	newPath := filepath.Join(".looper", ticket, ticket+"_PLAN.md")
+	if _, err := os.Stat(newPath); err == nil {
+		return newPath, nil
+	}
+
+	looperDir := filepath.Join(".looper", ticket)
+	if err := os.MkdirAll(looperDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create .looper/%s directory: %w", ticket, err)
+	}
+
+	return newPath, nil
 }

@@ -37,6 +37,59 @@ Replace `darwin-arm64` with `darwin-amd64` or `linux-amd64` as needed.
 
 ## Commands
 
+### `init` — Initialize repository for looper
+
+Set up a new repository for looper by creating the standard directory structure, configuring `.gitignore`, and optionally generating repo-specific settings.
+
+```bash
+looper init              # full setup: .looper/ directory, .gitignore, and .looper.json config
+looper init --yes       # auto-accept all defaults without prompts
+looper init --dry-run   # preview changes without applying
+looper init --skip-gitignore  # skip .gitignore setup
+looper init --config-only  # only create .looper.json, skip directory setup
+looper init --migrate   # move existing root-level plan/progress/state files to .looper/:ticket/ structure
+```
+
+**What it does:**
+
+- Creates a `.looper/` directory at the repository root for organized file storage
+- Updates `.gitignore` to exclude `.looper/` from version control
+- Detects your project stack (Go, Node.js, Python, Ruby/Rails, Rust, Java/Maven)
+- Prompts to create a `.looper.json` configuration file with sensible defaults
+- Scans for global config and available agents, offering setup guidance if needed
+- Detects any existing root-level looper files and offers to migrate them
+
+**Directory structure after `looper init`:**
+
+```
+.looper/
+└── TICKET/
+    ├── TICKET_PLAN.md      # Plan created by `looper plan`
+    ├── TICKET_PROGRESS.md  # Progress tracked during runs
+    └── TICKET_STATE.json   # Execution state (internal)
+```
+
+**Note on file locations:** Plan files are written to `.looper/:ticket/` by default. Progress and state files will move there too in an upcoming update — existing root-level files continue to work in the meantime. Use `looper init --migrate` to relocate existing files manually.
+
+**Configuration (`looper.json`):**
+
+Created by `looper init --config-only` or during full init, this file stores repo-specific overrides:
+
+```json
+{
+  "defaults": {
+    "cycles": 5,
+    "timeout": 420
+  },
+  "reviewers": {
+    "general": ""
+  },
+  "stack": "Node.js/JavaScript + Go"
+}
+```
+
+These settings are merged with your global config, allowing per-project customization without affecting other repositories.
+
 ### `start` — Linear-integrated workflow (recommended)
 
 Fetch a Linear ticket, create a branch, generate a plan, and run the implement loop in one command.

@@ -10,17 +10,18 @@ import (
 )
 
 var stackIndicators = []struct {
-	file    string
-	keyword string
+	file        string
+	keyword     string
+	displayName string
 }{
-	{"go.mod", "go"},
-	{"Gemfile", "rails"},
-	{"package.json", "node"},
-	{"pyproject.toml", "python"},
-	{"requirements.txt", "python"},
-	{"Cargo.toml", "rust"},
-	{"pom.xml", "java"},
-	{"build.gradle", "java"},
+	{"go.mod", "go", "Go"},
+	{"Gemfile", "rails", "Ruby/Rails"},
+	{"package.json", "node", "Node.js/JavaScript"},
+	{"pyproject.toml", "python", "Python"},
+	{"requirements.txt", "python", "Python"},
+	{"Cargo.toml", "rust", "Rust"},
+	{"pom.xml", "java", "Java/Maven"},
+	{"build.gradle", "java", "Java/Maven"},
 }
 
 // Why: silent when no stack is detected so greenfield repos don't generate noise.
@@ -58,10 +59,23 @@ func warnOnStackMismatch(projectDir, reviewerBasename string) {
 }
 
 func detectStack(projectDir string) string {
+	stacks := detectAllStacks(projectDir)
+	if len(stacks) == 0 {
+		return ""
+	}
+	return stacks[0]
+}
+
+func detectAllStacks(projectDir string) []string {
+	var stacks []string
+	seen := make(map[string]bool)
 	for _, ind := range stackIndicators {
 		if _, err := os.Stat(filepath.Join(projectDir, ind.file)); err == nil {
-			return ind.keyword
+			if !seen[ind.keyword] {
+				stacks = append(stacks, ind.keyword)
+				seen[ind.keyword] = true
+			}
 		}
 	}
-	return ""
+	return stacks
 }
