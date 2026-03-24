@@ -9,10 +9,12 @@ import (
 	"github.com/willmurray/looper/internal/selector"
 )
 
+func floatPtr(v float64) *float64 { return &v }
+
 func TestSelectReviewersGeneralOnly(t *testing.T) {
 	t.Parallel()
 	reviewers := config.Reviewers{General: "general.md", Specialized: []string{"spec.md"}}
-	strategy := config.ReviewStrategy{Mode: "general-only", GeneralEvery: 1, MajorityThreshold: 0.6}
+	strategy := config.ReviewStrategy{Mode: "general-only", GeneralEvery: 1, MajorityThreshold: floatPtr(0.6)}
 	got := selector.SelectReviewers(reviewers, strategy, nil, detect.Detection{}, 1, 5)
 	if len(got) != 1 || got[0] != "general.md" {
 		t.Errorf("general-only: got %v, want [general.md]", got)
@@ -22,7 +24,7 @@ func TestSelectReviewersGeneralOnly(t *testing.T) {
 func TestSelectReviewersAlways(t *testing.T) {
 	t.Parallel()
 	reviewers := config.Reviewers{General: "general.md", Specialized: []string{"spec1.md", "spec2.md"}}
-	strategy := config.ReviewStrategy{Mode: "always", GeneralEvery: 1, MajorityThreshold: 0.6}
+	strategy := config.ReviewStrategy{Mode: "always", GeneralEvery: 1, MajorityThreshold: floatPtr(0.6)}
 	got := selector.SelectReviewers(reviewers, strategy, nil, detect.Detection{}, 1, 5)
 	if len(got) != 3 {
 		t.Fatalf("always: got %v, want 3 reviewers", got)
@@ -35,7 +37,7 @@ func TestSelectReviewersAlways(t *testing.T) {
 func TestSelectReviewersSmartSchedule(t *testing.T) {
 	t.Parallel()
 	reviewers := config.Reviewers{General: "general.md", Specialized: []string{"spec.md"}}
-	strategy := config.ReviewStrategy{Mode: "smart", GeneralEvery: 1, SpecializedEvery: 3, MajorityThreshold: 0.6}
+	strategy := config.ReviewStrategy{Mode: "smart", GeneralEvery: 1, SpecializedEvery: 3, MajorityThreshold: floatPtr(0.6)}
 	metadata := map[string]agent.Metadata{} // no language match
 
 	// Iteration 3: specialized_every = 3, so should include specialized.
@@ -62,7 +64,7 @@ func TestSelectReviewersSmartSchedule(t *testing.T) {
 func TestSelectReviewersLanguageMatch(t *testing.T) {
 	t.Parallel()
 	reviewers := config.Reviewers{General: "general.md", Specialized: []string{"go-reviewer.md"}}
-	strategy := config.ReviewStrategy{Mode: "smart", GeneralEvery: 1, SpecializedEvery: 10, MajorityThreshold: 0.6}
+	strategy := config.ReviewStrategy{Mode: "smart", GeneralEvery: 1, SpecializedEvery: 10, MajorityThreshold: floatPtr(0.6)}
 	metadata := map[string]agent.Metadata{
 		"go-reviewer.md": {Languages: []string{"go"}},
 	}
@@ -89,7 +91,7 @@ func TestSelectReviewersSpecializedOnCompletion(t *testing.T) {
 		GeneralEvery:            1,
 		SpecializedEvery:        10,
 		SpecializedOnCompletion: true,
-		MajorityThreshold:       0.6,
+		MajorityThreshold:       floatPtr(0.6),
 	}
 	metadata := map[string]agent.Metadata{} // no language match
 
@@ -118,7 +120,7 @@ func TestSelectReviewersDedup(t *testing.T) {
 	t.Parallel()
 	// general and specialized are the same path.
 	reviewers := config.Reviewers{General: "agent.md", Specialized: []string{"agent.md"}}
-	strategy := config.ReviewStrategy{Mode: "always", GeneralEvery: 1, MajorityThreshold: 0.6}
+	strategy := config.ReviewStrategy{Mode: "always", GeneralEvery: 1, MajorityThreshold: floatPtr(0.6)}
 	got := selector.SelectReviewers(reviewers, strategy, nil, detect.Detection{}, 1, 5)
 	if len(got) != 1 {
 		t.Errorf("dedup: expected 1 reviewer, got %v", got)

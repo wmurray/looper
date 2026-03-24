@@ -33,11 +33,12 @@ type Reviewers struct {
 }
 
 type ReviewStrategy struct {
-	Mode                    string  `json:"mode"`
-	GeneralEvery            int     `json:"general_every"`
-	SpecializedEvery        int     `json:"specialized_every"`
-	SpecializedOnCompletion bool    `json:"specialized_on_completion"`
-	MajorityThreshold       float64 `json:"majority_threshold"`
+	Mode                    string   `json:"mode"`
+	GeneralEvery            int      `json:"general_every"`
+	SpecializedEvery        int      `json:"specialized_every"`
+	SpecializedOnCompletion bool     `json:"specialized_on_completion"`
+	// Gotcha: pointer so that explicit 0.0 ("any approval counts") is distinguishable from unset.
+	MajorityThreshold       *float64 `json:"majority_threshold,omitempty"`
 }
 
 type Config struct {
@@ -75,11 +76,12 @@ func EffectiveReviewers(cfg Config) Reviewers {
 
 // EffectiveReviewStrategy returns cfg.ReviewStrategy with defaults applied.
 func EffectiveReviewStrategy(cfg Config) ReviewStrategy {
+	defaultThreshold := 0.6
 	s := ReviewStrategy{
-		Mode:             "smart",
-		GeneralEvery:     1,
-		SpecializedEvery: 3,
-		MajorityThreshold: 0.6,
+		Mode:              "smart",
+		GeneralEvery:      1,
+		SpecializedEvery:  3,
+		MajorityThreshold: &defaultThreshold,
 	}
 	if cfg.ReviewStrategy == nil {
 		return s
@@ -94,7 +96,7 @@ func EffectiveReviewStrategy(cfg Config) ReviewStrategy {
 	if r.SpecializedEvery == 0 {
 		r.SpecializedEvery = s.SpecializedEvery
 	}
-	if r.MajorityThreshold == 0 {
+	if r.MajorityThreshold == nil {
 		r.MajorityThreshold = s.MajorityThreshold
 	}
 	return r

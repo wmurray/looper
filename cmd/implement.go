@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,6 +40,9 @@ var (
 	flagRetries     int
 	flagReviewEvery int
 )
+
+// Perf: compiled once at startup; matched on every reviewer response.
+var jobsDoneRe = regexp.MustCompile(`(?i)job.*s\s+done`)
 
 // Safety guarantees:
 //   - Never pushes code to a remote
@@ -288,7 +292,11 @@ func buildMetadataMap(r *config.Reviewers) map[string]agent.Metadata {
 		expanded := config.ExpandPath(p)
 		md, err := agent.ParseMetadata(expanded)
 		if err != nil {
-			ui.Warn("could not parse agent metadata %s: %v", expanded, err)
+			if errors.Is(err, os.ErrNotExist) {
+				ui.Warn("reviewer agent file not found: %s — check your config", expanded)
+			} else {
+				ui.Warn("could not parse agent metadata %s: %v", expanded, err)
+			}
 			continue
 		}
 		md.Path = expanded
@@ -303,7 +311,8 @@ func buildMetadataMap(r *config.Reviewers) map[string]agent.Metadata {
 // guard counters so thrash/stuck detection is continuous across resumptions.
 func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout, retries, reviewEvery int, stream bool, startCycle int, guardState *guards.State, startedAt time.Time) error {
 	skillPath := config.ExpandPath(cfg.SkillPath)
-	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
+	// Why: unexpanded so the loop's ExpandPath call handles all paths uniformly (metadataMap keys are also unexpanded).
+	reviewerAgent := cfg.ReviewerAgent
 
 	planContent, err := os.ReadFile(planFile)
 	if err != nil {
@@ -490,7 +499,7 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 				ReviewerApprovals: reviewerApprovals,
 			})
 
-			approved := selector.MajorityApproved(approvals, len(reviewerPaths), strategy.MajorityThreshold)
+			approved := selector.MajorityApproved(approvals, len(reviewerPaths), *strategy.MajorityThreshold)
 			if approved {
 				_ = pw.WriteSuccess(i)
 				_ = pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
@@ -574,7 +583,6 @@ func runReviewer(ctx context.Context, cfg config.Config, reviewerPath, planConte
 		return "", false, fmt.Errorf("review agent failed at iteration %d", iteration)
 	}
 
-	jobsDoneRe := regexp.MustCompile(`(?i)job.*s\s+done`)
 	approved := jobsDoneRe.MatchString(reviewResult.Output)
 	return reviewResult.Output, approved, nil
 }

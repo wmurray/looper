@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -227,8 +226,14 @@ func TestDelete_ErrorIncludesPath(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error when state path is a non-empty directory, got nil")
 		}
-		if !strings.Contains(err.Error(), state.NewPath(ticket)) {
-			t.Errorf("error %q does not contain the failed path %q", err.Error(), state.NewPath(ticket))
+		// Invariant: error message must include the path that failed, not just a generic os error.
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			if pathErr.Path != state.NewPath(ticket) {
+				t.Errorf("PathError.Path = %q, want %q", pathErr.Path, state.NewPath(ticket))
+			}
+		} else {
+			t.Errorf("expected wrapped *os.PathError, got: %T %v", err, err)
 		}
 	})
 }

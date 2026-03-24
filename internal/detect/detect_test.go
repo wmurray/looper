@@ -45,3 +45,19 @@ index abc..def 100644
 		t.Errorf("Languages = %v, want [go]", d.Languages)
 	}
 }
+
+func TestFromGitDiff_DeletedFile(t *testing.T) {
+	t.Parallel()
+	// Invariant: deleted files ("+++ /dev/null") must not contribute a language detection.
+	diff := `diff --git a/old.go b/old.go
+index abc..def 100644
+--- a/old.go
++++ /dev/null
+@@ -1,3 +0,0 @@
+-package main
+`
+	d := detect.FromGitDiff(diff)
+	if len(d.Languages) != 0 {
+		t.Errorf("deleted file should not contribute languages, got %v", d.Languages)
+	}
+}

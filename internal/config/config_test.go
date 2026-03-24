@@ -8,6 +8,8 @@ import (
 	"testing"
 )
 
+func floatPtr(v float64) *float64 { return &v }
+
 // --- Load ---
 
 func TestLoad_MissingFile_ReturnsDefaults(t *testing.T) {
@@ -1115,7 +1117,7 @@ func TestApplyRepoOverlay_ReviewersOverrides(t *testing.T) {
 func TestApplyRepoOverlay_ReviewStrategyOverrides(t *testing.T) {
 	t.Parallel()
 	dst := Config{}
-	src := Config{ReviewStrategy: &ReviewStrategy{Mode: "always", MajorityThreshold: 0.8}}
+	src := Config{ReviewStrategy: &ReviewStrategy{Mode: "always", MajorityThreshold: floatPtr(0.8)}}
 	result, keys := applyRepoOverlay(dst, src)
 	if result.ReviewStrategy == nil || result.ReviewStrategy.Mode != "always" {
 		t.Errorf("ReviewStrategy = %v, want mode=always", result.ReviewStrategy)
@@ -1171,6 +1173,16 @@ func TestMigrateNoOp(t *testing.T) {
 	}
 }
 
+func TestMigrateNoOp_BothZero(t *testing.T) {
+	t.Parallel()
+	// Invariant: zero ReviewerAgent + nil Reviewers is a valid state; Migrate must not panic or populate.
+	cfg := Config{}
+	MigrateReviewerAgent(&cfg)
+	if cfg.Reviewers != nil {
+		t.Errorf("expected Reviewers to remain nil when ReviewerAgent is empty, got %v", cfg.Reviewers)
+	}
+}
+
 func TestEffectiveReviewersNilFallback(t *testing.T) {
 	t.Parallel()
 	cfg := Config{ReviewerAgent: "path/to/reviewer.md"}
@@ -1208,8 +1220,8 @@ func TestEffectiveReviewStrategyPartial(t *testing.T) {
 	if s.SpecializedEvery != 3 {
 		t.Errorf("SpecializedEvery = %d, want 3 (default)", s.SpecializedEvery)
 	}
-	if s.MajorityThreshold != 0.6 {
-		t.Errorf("MajorityThreshold = %f, want 0.6 (default)", s.MajorityThreshold)
+	if s.MajorityThreshold == nil || *s.MajorityThreshold != 0.6 {
+		t.Errorf("MajorityThreshold = %v, want 0.6 (default)", s.MajorityThreshold)
 	}
 }
 
@@ -1226,7 +1238,17 @@ func TestEffectiveReviewStrategyDefaults(t *testing.T) {
 	if s.SpecializedEvery != 3 {
 		t.Errorf("SpecializedEvery = %d, want 3", s.SpecializedEvery)
 	}
-	if s.MajorityThreshold != 0.6 {
-		t.Errorf("MajorityThreshold = %f, want 0.6", s.MajorityThreshold)
+	if s.MajorityThreshold == nil || *s.MajorityThreshold != 0.6 {
+		t.Errorf("MajorityThreshold = %v, want 0.6", s.MajorityThreshold)
+	}
+}
+
+func TestEffectiveReviewStrategy_ExplicitZeroThreshold(t *testing.T) {
+	t.Parallel()
+	// Invariant: explicit 0.0 means "any approval counts" — must not be overwritten by default 0.6.
+	cfg := Config{ReviewStrategy: &ReviewStrategy{MajorityThreshold: floatPtr(0.0)}}
+	s := EffectiveReviewStrategy(cfg)
+	if s.MajorityThreshold == nil || *s.MajorityThreshold != 0.0 {
+		t.Errorf("MajorityThreshold = %v, want explicit 0.0 to be preserved", s.MajorityThreshold)
 	}
 }

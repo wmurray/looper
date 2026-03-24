@@ -220,3 +220,15 @@ func TestCheckRepeatedIssues_ExactSentenceRepeatFires(t *testing.T) {
 		t.Fatal("should trigger on third consecutive identical sentence")
 	}
 }
+
+func TestCheckRepeatedIssues_EmptyInput(t *testing.T) {
+	// Invariant: empty reviewer output (no reviewers configured) resets stuck state and must not panic or trigger.
+	s := &State{}
+	result := s.CheckRepeatedIssues("")
+	if result.Triggered || result.Warning {
+		t.Errorf("empty input should not trigger or warn, got %+v", result)
+	}
+	if s.StuckCount != 0 || s.PrevIssueHash != "" {
+		t.Errorf("empty input should reset stuck state, got StuckCount=%d PrevIssueHash=%q", s.StuckCount, s.PrevIssueHash)
+	}
+}
