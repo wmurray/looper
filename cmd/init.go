@@ -16,6 +16,33 @@ import (
 	"github.com/willmurray/looper/internal/ui"
 )
 
+// Gotcha: strict pattern — 1-4-letter prefix OR letter-prefix with hyphen-digits. Rejects words like DATABASE.
+var ticketFileRe = regexp.MustCompile(`^([A-Z]{1,4}(?:-[0-9]+)?|[A-Z][A-Z0-9]*-[0-9]+)_`)
+
+type initOptions struct {
+	Yes           bool
+	SkipGitignore bool
+	ConfigOnly    bool
+	SkipConfig    bool
+	DryRun        bool
+	Migrate       bool
+}
+
+type repoConfigDefaults struct {
+	Cycles  int `json:"cycles"`
+	Timeout int `json:"timeout"`
+}
+
+type repoConfigReviewers struct {
+	General string `json:"general"`
+}
+
+type repoConfig struct {
+	Defaults  repoConfigDefaults  `json:"defaults"`
+	Reviewers repoConfigReviewers `json:"reviewers"`
+	Stack     string              `json:"stack,omitempty"`
+}
+
 var initCmd = newInitCmd()
 
 func newInitCmd() *cobra.Command {
@@ -43,60 +70,67 @@ The command is idempotent and safe to run multiple times.`,
 	cmd.Flags().Bool("migrate", false, "Migrate existing root-level files to .looper/ structure")
 
 	cmd.RunE = func(c *cobra.Command, args []string) error {
-		yesFlag, _ := c.Flags().GetBool("yes")
+		yes, _ := c.Flags().GetBool("yes")
 		skipGitignore, _ := c.Flags().GetBool("skip-gitignore")
 		configOnly, _ := c.Flags().GetBool("config-only")
 		skipConfig, _ := c.Flags().GetBool("skip-config")
 		dryRun, _ := c.Flags().GetBool("dry-run")
-		migrateFlag, _ := c.Flags().GetBool("migrate")
+		migrate, _ := c.Flags().GetBool("migrate")
 
-		return runInit(c, ".", yesFlag, skipGitignore, configOnly, skipConfig, dryRun, migrateFlag)
+		return runInit(c, ".", initOptions{
+			Yes:           yes,
+			SkipGitignore: skipGitignore,
+			ConfigOnly:    configOnly,
+			SkipConfig:    skipConfig,
+			DryRun:        dryRun,
+			Migrate:       migrate,
+		})
 	}
 
 	return cmd
 }
 
-func runInit(cmd *cobra.Command, repoRoot string, yes, skipGitignore, configOnly, skipConfig, dryRun, migrate bool) error {
+func runInit(cmd *cobra.Command, repoRoot string, opts initOptions) error {
 	out := cmd.OutOrStdout()
 
-	if configOnly && skipConfig {
+	if opts.ConfigOnly && opts.SkipConfig {
 		return fmt.Errorf("cannot use --config-only and --skip-config together")
 	}
 
-	if dryRun {
+	if opts.DryRun {
 		fmt.Fprintln(out, "→ DRY RUN: no changes will be applied")
 		fmt.Fprintln(out)
 	}
 
-	if !configOnly {
-		if err := createLooperDir(out, repoRoot, dryRun); err != nil {
+	if !opts.ConfigOnly {
+		if err := createLooperDir(out, repoRoot, opts.DryRun); err != nil {
 			return err
 		}
 	}
 
-	if !configOnly && !skipGitignore {
-		if err := setupGitignore(cmd, out, repoRoot, yes, dryRun); err != nil {
+	if !opts.ConfigOnly && !opts.SkipGitignore {
+		if err := setupGitignore(cmd, out, repoRoot, opts.Yes, opts.DryRun); err != nil {
 			return err
 		}
 	}
 
-	if !skipConfig {
-		if err := createLooperConfig(cmd, out, repoRoot, yes, dryRun); err != nil {
+	if !opts.SkipConfig {
+		if err := createLooperConfig(cmd, out, repoRoot, opts.Yes, opts.DryRun); err != nil {
 			return err
 		}
 	}
 
-	if migrate {
-		if err := migrateRootFiles(cmd, out, repoRoot, yes, dryRun); err != nil {
+	if opts.Migrate {
+		if err := migrateRootFiles(cmd, out, repoRoot, opts.Yes, opts.DryRun); err != nil {
 			return err
 		}
 	}
 
-	if !dryRun {
+	if !opts.DryRun {
 		verifyAndGuide(out, repoRoot)
 	}
 
-	if dryRun {
+	if opts.DryRun {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "✓ DRY RUN complete. No files were modified.")
 	} else {
@@ -111,12 +145,12 @@ func createLooperDir(out io.Writer, repoRoot string, dryRun bool) error {
 	looperDir := filepath.Join(repoRoot, ".looper")
 
 	if _, err := os.Stat(looperDir); err == nil {
-		fmt.Fprintf(out, "✓ .looper/ directory already exists\n")
+		fmt.Fprintln(out, "✓ .looper/ directory already exists")
 		return nil
 	}
 
 	if dryRun {
-		fmt.Fprintf(out, "→ Would create .looper/ directory\n")
+		fmt.Fprintln(out, "→ Would create .looper/ directory")
 		return nil
 	}
 
@@ -124,7 +158,7 @@ func createLooperDir(out io.Writer, repoRoot string, dryRun bool) error {
 		return fmt.Errorf("failed to create .looper directory (check write permissions): %w", err)
 	}
 
-	fmt.Fprintf(out, "✓ Created .looper/ directory\n")
+	fmt.Fprintln(out, "✓ Created .looper/ directory")
 	return nil
 }
 
@@ -134,15 +168,15 @@ func setupGitignore(cmd *cobra.Command, out io.Writer, repoRoot string, yes, dry
 
 	var content []byte
 
-	if _, err := os.Stat(gitignorePath); err == nil {
-		var err error
-		content, err = os.ReadFile(gitignorePath)
-		if err != nil {
-			return fmt.Errorf("failed to read .gitignore (check file permissions): %w", err)
+	if _, statErr := os.Stat(gitignorePath); statErr == nil {
+		var readErr error
+		content, readErr = os.ReadFile(gitignorePath)
+		if readErr != nil {
+			return fmt.Errorf("failed to read .gitignore (check file permissions): %w", readErr)
 		}
 
 		if strings.Contains(string(content), looperPattern) {
-			fmt.Fprintf(out, "✓ .gitignore already contains .looper/ pattern\n")
+			fmt.Fprintln(out, "✓ .gitignore already contains .looper/ pattern")
 			return nil
 		}
 	}
@@ -154,10 +188,10 @@ func setupGitignore(cmd *cobra.Command, out io.Writer, repoRoot string, yes, dry
 	newContent += "# looper-cli generated files\n.looper/\n"
 
 	if !yes && !dryRun {
-		fmt.Fprintf(out, "\n.gitignore changes:\n")
-		fmt.Fprintf(out, "  + # looper-cli generated files\n")
-		fmt.Fprintf(out, "  + .looper/\n")
-		fmt.Fprintf(out, "\nApply changes? [y/N] ")
+		fmt.Fprintln(out, "\n.gitignore changes:")
+		fmt.Fprintln(out, "  + # looper-cli generated files")
+		fmt.Fprintln(out, "  + .looper/")
+		fmt.Fprint(out, "\nApply changes? [y/N] ")
 
 		scanner := bufio.NewScanner(cmd.InOrStdin())
 		if !scanner.Scan() {
@@ -173,7 +207,7 @@ func setupGitignore(cmd *cobra.Command, out io.Writer, repoRoot string, yes, dry
 	}
 
 	if dryRun {
-		fmt.Fprintf(out, "→ Would update .gitignore with .looper/ pattern\n")
+		fmt.Fprintln(out, "→ Would update .gitignore with .looper/ pattern")
 		return nil
 	}
 
@@ -181,7 +215,7 @@ func setupGitignore(cmd *cobra.Command, out io.Writer, repoRoot string, yes, dry
 		return fmt.Errorf("failed to write .gitignore (check write permissions): %w", err)
 	}
 
-	fmt.Fprintf(out, "✓ Updated .gitignore\n")
+	fmt.Fprintln(out, "✓ Updated .gitignore")
 	return nil
 }
 
@@ -189,29 +223,28 @@ func createLooperConfig(cmd *cobra.Command, out io.Writer, repoRoot string, yes,
 	configPath := filepath.Join(repoRoot, ".looper.json")
 
 	if _, err := os.Stat(configPath); err == nil {
-		fmt.Fprintf(out, "✓ .looper.json already exists\n")
+		fmt.Fprintln(out, "✓ .looper.json already exists")
 		return nil
 	}
 
 	stack := getStackDescription(repoRoot)
 
-	cfg := map[string]interface{}{
-		"defaults": map[string]interface{}{
-			"cycles":  5,
-			"timeout": 420,
+	cfg := repoConfig{
+		Defaults: repoConfigDefaults{
+			Cycles:  5,
+			Timeout: 420,
 		},
-		"reviewers": map[string]interface{}{
-			"general": "",
+		Reviewers: repoConfigReviewers{
+			General: "",
 		},
-	}
-
-	if stack != "" {
-		cfg["stack"] = stack
+		Stack: stack,
 	}
 
 	if !yes && !dryRun {
-		fmt.Fprintf(out, "\nProject stack detected: %s\n", stack)
-		fmt.Fprintf(out, "Create .looper.json with defaults? [y/N] ")
+		if stack != "" {
+			fmt.Fprintf(out, "\nProject stack detected: %s\n", stack)
+		}
+		fmt.Fprint(out, "Create .looper.json with defaults? [y/N] ")
 
 		scanner := bufio.NewScanner(cmd.InOrStdin())
 		if !scanner.Scan() {
@@ -227,7 +260,7 @@ func createLooperConfig(cmd *cobra.Command, out io.Writer, repoRoot string, yes,
 	}
 
 	if dryRun {
-		fmt.Fprintf(out, "→ Would create .looper.json\n")
+		fmt.Fprintln(out, "→ Would create .looper.json")
 		return nil
 	}
 
@@ -240,36 +273,21 @@ func createLooperConfig(cmd *cobra.Command, out io.Writer, repoRoot string, yes,
 		return fmt.Errorf("failed to write .looper.json (check write permissions): %w", err)
 	}
 
-	fmt.Fprintf(out, "✓ Created .looper.json\n")
+	fmt.Fprintln(out, "✓ Created .looper.json")
 	return nil
 }
 
 func getStackDescription(repoRoot string) string {
-	stacks := detectAllStacks(repoRoot)
-	if len(stacks) == 0 {
-		return "Unknown"
-	}
-
-	keywordToName := map[string]string{
-		"go":     "Go",
-		"rails":  "Ruby/Rails",
-		"node":   "Node.js/JavaScript",
-		"python": "Python",
-		"rust":   "Rust",
-		"java":   "Java/Maven",
-	}
-
 	var names []string
-	for _, kw := range stacks {
-		if name, ok := keywordToName[kw]; ok {
-			names = append(names, name)
+	seen := make(map[string]bool)
+	for _, ind := range stackIndicators {
+		if _, err := os.Stat(filepath.Join(repoRoot, ind.file)); err == nil {
+			if !seen[ind.displayName] {
+				names = append(names, ind.displayName)
+				seen[ind.displayName] = true
+			}
 		}
 	}
-
-	if len(names) == 0 {
-		return "Unknown"
-	}
-
 	return strings.Join(names, " + ")
 }
 
@@ -283,9 +301,6 @@ func findMigrationCandidates(repoRoot string) []string {
 	var candidates []string
 	seen := make(map[string]bool)
 
-	// Gotcha: Matches ticket format (IMP or IMP-123) but rejects words like DATABASE_PLAN.md.
-	ticketIDRegex := regexp.MustCompile(`^([A-Z]{1,4}(?:-[0-9]+)?|[A-Z][A-Z0-9]*-[0-9]+)_`)
-
 	for _, pattern := range patterns {
 		matches, err := filepath.Glob(filepath.Join(repoRoot, pattern))
 		if err != nil {
@@ -293,7 +308,7 @@ func findMigrationCandidates(repoRoot string) []string {
 		}
 		for _, match := range matches {
 			base := filepath.Base(match)
-			if ticketIDRegex.MatchString(base) && !seen[base] {
+			if ticketFileRe.MatchString(base) && !seen[base] {
 				candidates = append(candidates, base)
 				seen[base] = true
 			}
@@ -306,7 +321,7 @@ func findMigrationCandidates(repoRoot string) []string {
 func migrateRootFiles(cmd *cobra.Command, out io.Writer, repoRoot string, yes, dryRun bool) error {
 	candidates := findMigrationCandidates(repoRoot)
 	if len(candidates) == 0 {
-		fmt.Fprintf(out, "✓ No root-level looper files found to migrate\n")
+		fmt.Fprintln(out, "✓ No root-level looper files found to migrate")
 		return nil
 	}
 
@@ -317,7 +332,7 @@ func migrateRootFiles(cmd *cobra.Command, out io.Writer, repoRoot string, yes, d
 	}
 
 	if !yes && !dryRun {
-		fmt.Fprintf(out, "\nMigrate these files to .looper/:ticket/? [y/N] ")
+		fmt.Fprint(out, "\nMigrate these files to .looper/:ticket/? [y/N] ")
 		scanner := bufio.NewScanner(cmd.InOrStdin())
 		if !scanner.Scan() {
 			fmt.Fprintln(out, "Skipped.")
@@ -348,8 +363,7 @@ func migrateRootFiles(cmd *cobra.Command, out io.Writer, repoRoot string, yes, d
 func moveFileToLooperStructure(repoRoot, filename string) error {
 	srcPath := filepath.Join(repoRoot, filename)
 
-	re := regexp.MustCompile(`^([A-Z][A-Z0-9]*(?:-[0-9]+)?)_`)
-	matches := re.FindStringSubmatch(filename)
+	matches := ticketFileRe.FindStringSubmatch(filename)
 	if len(matches) < 2 {
 		return fmt.Errorf("cannot determine ticket from filename: %s", filename)
 	}
@@ -360,50 +374,39 @@ func moveFileToLooperStructure(repoRoot, filename string) error {
 		return err
 	}
 
-	dstPath := filepath.Join(ticketDir, filename)
-
-	content, err := os.ReadFile(srcPath)
-	if err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(dstPath, content, 0644); err != nil {
-		return err
-	}
-
-	return os.Remove(srcPath)
+	return os.Rename(srcPath, filepath.Join(ticketDir, filename))
 }
 
 func verifyAndGuide(out io.Writer, repoRoot string) {
 	home, err := os.UserHomeDir()
-	if err == nil {
-		var globalCfgPath string
-		if runtime.GOOS == "darwin" {
-			globalCfgPath = filepath.Join(home, "Library", "Application Support", "looper", "config.json")
-		} else {
-			globalCfgPath = filepath.Join(home, ".config", "looper", "config.json")
-		}
-		if _, err := os.Stat(globalCfgPath); os.IsNotExist(err) {
-			fmt.Fprintln(out)
-			fmt.Fprintln(out, "• Global config not found")
-			fmt.Fprintf(out, "  Initialize with: looper settings set backend claude\n")
-		}
+	if err != nil {
+		return
 	}
 
-	if home != "" {
-		available, err := discover.Scan(home)
-		if err == nil && len(available) > 0 {
-			agents := 0
-			for _, f := range available {
-				if f.Kind == discover.KindAgent {
-					agents++
-				}
+	var globalCfgPath string
+	if runtime.GOOS == "darwin" {
+		globalCfgPath = filepath.Join(home, "Library", "Application Support", "looper", "config.json")
+	} else {
+		globalCfgPath = filepath.Join(home, ".config", "looper", "config.json")
+	}
+	if _, err := os.Stat(globalCfgPath); os.IsNotExist(err) {
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "• Global config not found")
+		fmt.Fprintln(out, "  Initialize with: looper settings set backend claude")
+	}
+
+	available, err := discover.Scan(home)
+	if err == nil && len(available) > 0 {
+		agents := 0
+		for _, f := range available {
+			if f.Kind == discover.KindAgent {
+				agents++
 			}
-			if agents > 0 {
-				fmt.Fprintln(out)
-				fmt.Fprintf(out, "• Found %d agent(s) available\n", agents)
-				fmt.Fprintf(out, "  Run 'looper settings discover --ai' to configure reviewers\n")
-			}
+		}
+		if agents > 0 {
+			fmt.Fprintln(out)
+			fmt.Fprintf(out, "• Found %d agent(s) available\n", agents)
+			fmt.Fprintln(out, "  Run 'looper settings discover --ai' to configure reviewers")
 		}
 	}
 

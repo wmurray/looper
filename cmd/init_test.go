@@ -10,14 +10,14 @@ import (
 )
 
 func TestInitCmd_DirectoryCreation(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, false, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
@@ -28,19 +28,18 @@ func TestInitCmd_DirectoryCreation(t *testing.T) {
 }
 
 func TestInitCmd_DirectoryCreation_Idempotent(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, false, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{}); err != nil {
 		t.Fatalf("first init failed: %v", err)
 	}
 
-	err = runInit(cmd, dir, false, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{}); err != nil {
 		t.Fatalf("second init failed: %v", err)
 	}
 
@@ -51,14 +50,14 @@ func TestInitCmd_DirectoryCreation_Idempotent(t *testing.T) {
 }
 
 func TestInitCmd_GitignoreCreation(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
@@ -68,26 +67,24 @@ func TestInitCmd_GitignoreCreation(t *testing.T) {
 		t.Fatalf("expected .gitignore to exist: %v", err)
 	}
 
-	contentStr := string(content)
-	if !strings.Contains(contentStr, ".looper/") {
-		t.Errorf("expected .gitignore to contain '.looper/', got %q", contentStr)
+	if !strings.Contains(string(content), ".looper/") {
+		t.Errorf("expected .gitignore to contain '.looper/', got %q", string(content))
 	}
 }
 
 func TestInitCmd_GitignoreNoDuplicates(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true}); err != nil {
 		t.Fatalf("first init failed: %v", err)
 	}
 
-	err = runInit(cmd, dir, true, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true}); err != nil {
 		t.Fatalf("second init failed: %v", err)
 	}
 
@@ -97,22 +94,21 @@ func TestInitCmd_GitignoreNoDuplicates(t *testing.T) {
 		t.Fatalf("expected .gitignore to exist: %v", err)
 	}
 
-	contentStr := string(content)
-	count := strings.Count(contentStr, ".looper/")
+	count := strings.Count(string(content), ".looper/")
 	if count != 1 {
 		t.Errorf("expected .looper/ pattern once in .gitignore, got %d times", count)
 	}
 }
 
 func TestInitCmd_GitignoreSkip(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, true, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true, SkipGitignore: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
@@ -122,54 +118,71 @@ func TestInitCmd_GitignoreSkip(t *testing.T) {
 	}
 }
 
-func TestInitCmd_StackDetection_NodeJS(t *testing.T) {
-	dir := t.TempDir()
-
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"test"}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	stack := detectStack(dir)
-	if stack != "node" {
-		t.Errorf("expected 'node' stack detection for package.json, got %q", stack)
-	}
-}
-
-func TestInitCmd_StackDetection_Go(t *testing.T) {
-	dir := t.TempDir()
-
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	stack := detectStack(dir)
-	if stack != "go" {
-		t.Errorf("expected 'go' stack detection for go.mod, got %q", stack)
-	}
-}
-
-func TestInitCmd_StackDetection_Python(t *testing.T) {
-	dir := t.TempDir()
-
-	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(""), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	stack := detectStack(dir)
-	if stack != "python" {
-		t.Errorf("expected 'python' stack detection for pyproject.toml, got %q", stack)
-	}
-}
-
-func TestInitCmd_LooperConfigCreation(t *testing.T) {
+func TestInitCmd_DryRun_CreatesNothing(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true, DryRun: true}); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	for _, name := range []string{".looper", ".gitignore", ".looper.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("expected %s not to be created in --dry-run mode", name)
+		}
+	}
+
+	output := out.String()
+	if !strings.Contains(strings.ToLower(output), "dry-run") && !strings.Contains(strings.ToLower(output), "would") {
+		t.Errorf("expected dry-run message in output, got %q", output)
+	}
+}
+
+func TestInitCmd_StackDetection(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		file    string
+		content string
+		wantKw  string
+	}{
+		{"Go", "go.mod", "module test", "go"},
+		{"Node", "package.json", `{"name":"test"}`, "node"},
+		{"Python", "pyproject.toml", "", "python"},
+		{"Rails", "Gemfile", "", "rails"},
+		{"Rust", "Cargo.toml", "", "rust"},
+		{"Java Maven", "pom.xml", "", "java"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, tt.file), []byte(tt.content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			stack := detectStack(dir)
+			if stack != tt.wantKw {
+				t.Errorf("expected %q for %s, got %q", tt.wantKw, tt.file, stack)
+			}
+		})
+	}
+}
+
+func TestInitCmd_LooperConfigCreation(t *testing.T) {
+	t.Parallel()
+	cmd := newInitCmd()
+	dir := t.TempDir()
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	if err := runInit(cmd, dir, initOptions{Yes: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
@@ -186,70 +199,68 @@ func TestInitCmd_LooperConfigCreation(t *testing.T) {
 }
 
 func TestInitCmd_ConfigOnlyFlag(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, true, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true, ConfigOnly: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	configPath := filepath.Join(dir, ".looper.json")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".looper.json")); os.IsNotExist(err) {
 		t.Errorf("expected .looper.json to exist with --config-only")
 	}
 
-	gitignorePath := filepath.Join(dir, ".gitignore")
-	if _, err := os.Stat(gitignorePath); !os.IsNotExist(err) {
+	// Invariant: --config-only must not create .looper/ or .gitignore.
+	if _, err := os.Stat(filepath.Join(dir, ".looper")); !os.IsNotExist(err) {
+		t.Errorf("expected .looper/ not to be created with --config-only")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".gitignore")); !os.IsNotExist(err) {
 		t.Errorf("expected .gitignore not to be created with --config-only")
 	}
 }
 
 func TestInitCmd_SkipConfigFlag(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, true, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true, SkipConfig: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	looperDir := filepath.Join(dir, ".looper")
-	if _, err := os.Stat(looperDir); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".looper")); os.IsNotExist(err) {
 		t.Errorf("expected .looper directory to exist")
 	}
 
-	configPath := filepath.Join(dir, ".looper.json")
-	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".looper.json")); !os.IsNotExist(err) {
 		t.Errorf("expected .looper.json not to be created with --skip-config")
 	}
 }
 
 func TestInitCmd_DryRunFlag(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, true, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true, DryRun: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	looperDir := filepath.Join(dir, ".looper")
-	if _, err := os.Stat(looperDir); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".looper")); !os.IsNotExist(err) {
 		t.Errorf("expected .looper directory not to be created in --dry-run mode")
 	}
 
-	configPath := filepath.Join(dir, ".looper.json")
-	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".looper.json")); !os.IsNotExist(err) {
 		t.Errorf("expected .looper.json not to be created in --dry-run mode")
 	}
 
@@ -260,6 +271,7 @@ func TestInitCmd_DryRunFlag(t *testing.T) {
 }
 
 func TestInitCmd_Flags(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 
 	tests := []struct {
@@ -283,24 +295,24 @@ func TestInitCmd_Flags(t *testing.T) {
 }
 
 func TestInitCmd_YesFlag(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	looperDir := filepath.Join(dir, ".looper")
-	if _, err := os.Stat(looperDir); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, ".looper")); os.IsNotExist(err) {
 		t.Errorf("expected .looper directory to exist")
 	}
 }
 
 func TestInitCmd_ExistingGitignore(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
@@ -311,13 +323,11 @@ func TestInitCmd_ExistingGitignore(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	gitignorePath := filepath.Join(dir, ".gitignore")
-	content, err := os.ReadFile(gitignorePath)
+	content, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
 	if err != nil {
 		t.Fatalf("expected .gitignore to exist: %v", err)
 	}
@@ -332,6 +342,7 @@ func TestInitCmd_ExistingGitignore(t *testing.T) {
 }
 
 func TestInitCmd_MultipleStacks(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{}`), 0644); err != nil {
@@ -353,17 +364,14 @@ func TestInitCmd_MultipleStacks(t *testing.T) {
 }
 
 func TestInitCmd_DetectMigrationCandidates(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
-	// Use TKT (3 chars) instead of TICKET (6 chars) to match ticket ID pattern
-	if err := os.WriteFile(filepath.Join(dir, "TKT_PLAN.md"), []byte("# Plan"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "TKT_PROGRESS.md"), []byte("# Progress"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "TKT_STATE.json"), []byte(`{}`), 0644); err != nil {
-		t.Fatal(err)
+	// Why: TKT (3 chars) used deliberately — TICKET (6 chars) exceeds the 4-char limit and won't be detected.
+	for _, name := range []string{"TKT_PLAN.md", "TKT_PROGRESS.md", "TKT_STATE.json"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("content"), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	candidates := findMigrationCandidates(dir)
@@ -373,6 +381,7 @@ func TestInitCmd_DetectMigrationCandidates(t *testing.T) {
 }
 
 func TestInitCmd_MigrateFlag_MovesFiles(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
@@ -384,13 +393,11 @@ func TestInitCmd_MigrateFlag_MovesFiles(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, true)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true, Migrate: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	ticketDir := filepath.Join(dir, ".looper", "TKT")
-	movedFile := filepath.Join(ticketDir, "TKT_PLAN.md")
+	movedFile := filepath.Join(dir, ".looper", "TKT", "TKT_PLAN.md")
 	if _, err := os.Stat(movedFile); os.IsNotExist(err) {
 		t.Errorf("expected migrated file at %s", movedFile)
 	}
@@ -400,15 +407,15 @@ func TestInitCmd_MigrateFlag_MovesFiles(t *testing.T) {
 	}
 }
 
-func TestInitCmd_MigrateFlag_DoesNothingIfNoFiles(t *testing.T) {
+func TestMigrateFlag_DoesNothingIfNoFiles(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true, Migrate: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
@@ -419,19 +426,18 @@ func TestInitCmd_MigrateFlag_DoesNothingIfNoFiles(t *testing.T) {
 }
 
 func TestInitCmd_ExtendedConfig_WithReviewers(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	configPath := filepath.Join(dir, ".looper.json")
-	content, err := os.ReadFile(configPath)
+	content, err := os.ReadFile(filepath.Join(dir, ".looper.json"))
 	if err != nil {
 		t.Fatalf("expected .looper.json to exist: %v", err)
 	}
@@ -447,6 +453,7 @@ func TestInitCmd_ExtendedConfig_WithReviewers(t *testing.T) {
 }
 
 func TestInitCmd_VerifyGuidance_RootFilesDetection(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
@@ -457,39 +464,40 @@ func TestInitCmd_VerifyGuidance_RootFilesDetection(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	output := out.String()
 	if !strings.Contains(output, "TKT_PLAN") && !strings.Contains(output, "migrate") {
-		t.Logf("expected migration guidance in output: %q", output)
+		t.Errorf("expected migration guidance in output: %q", output)
 	}
 }
 
 func TestInitCmd_VerifyGuidance_GlobalConfigCheck(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, false)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
 func TestInitCmd_MigrateFlag_WithMultipleFiles(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
-	planFile := filepath.Join(dir, "TKT_PLAN.md")
-	progressFile := filepath.Join(dir, "TKT_PROGRESS.md")
-	stateFile := filepath.Join(dir, "TKT_STATE.json")
-
-	for _, f := range []string{planFile, progressFile, stateFile} {
+	srcFiles := []string{
+		filepath.Join(dir, "TKT_PLAN.md"),
+		filepath.Join(dir, "TKT_PROGRESS.md"),
+		filepath.Join(dir, "TKT_STATE.json"),
+	}
+	for _, f := range srcFiles {
 		if err := os.WriteFile(f, []byte("content"), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -498,38 +506,30 @@ func TestInitCmd_MigrateFlag_WithMultipleFiles(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, true)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true, Migrate: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	ticketDir := filepath.Join(dir, ".looper", "TKT")
-	expectedFiles := []string{
-		filepath.Join(ticketDir, "TKT_PLAN.md"),
-		filepath.Join(ticketDir, "TKT_PROGRESS.md"),
-		filepath.Join(ticketDir, "TKT_STATE.json"),
-	}
-
-	for _, f := range expectedFiles {
-		if _, err := os.Stat(f); os.IsNotExist(err) {
-			t.Errorf("expected migrated file at %s", f)
+	for _, name := range []string{"TKT_PLAN.md", "TKT_PROGRESS.md", "TKT_STATE.json"} {
+		dst := filepath.Join(ticketDir, name)
+		if _, err := os.Stat(dst); os.IsNotExist(err) {
+			t.Errorf("expected migrated file at %s", dst)
 		}
 	}
 
-	for _, f := range []string{planFile, progressFile, stateFile} {
+	for _, f := range srcFiles {
 		if _, err := os.Stat(f); !os.IsNotExist(err) {
 			t.Errorf("expected original file %s to be removed", f)
 		}
 	}
 }
 
-// TDD Tests for critical issues
-
 func TestMigrateFlag_HyphenatedTicketID(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
-	// Test with hyphenated ticket ID like IMP-123
 	planFile := filepath.Join(dir, "IMP-123_PLAN.md")
 	if err := os.WriteFile(planFile, []byte("# Plan"), 0644); err != nil {
 		t.Fatal(err)
@@ -538,55 +538,38 @@ func TestMigrateFlag_HyphenatedTicketID(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	err := runInit(cmd, dir, true, false, false, false, false, true)
-	if err != nil {
+	if err := runInit(cmd, dir, initOptions{Yes: true, Migrate: true}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	// Should migrate to .looper/IMP-123/, not .looper/IMP/
+	// Invariant: full ticket ID preserved as directory — .looper/IMP-123/, not .looper/IMP/.
 	correctPath := filepath.Join(dir, ".looper", "IMP-123", "IMP-123_PLAN.md")
 	wrongPath := filepath.Join(dir, ".looper", "IMP", "IMP-123_PLAN.md")
 
-	correctExists := false
-	if _, err := os.Stat(correctPath); !os.IsNotExist(err) {
-		correctExists = true
-	}
-
-	wrongExists := false
-	if _, err := os.Stat(wrongPath); !os.IsNotExist(err) {
-		wrongExists = true
-	}
-
-	if !correctExists && wrongExists {
-		t.Errorf("file migrated to wrong path (extracted IMP instead of IMP-123)")
-	}
-
-	if !correctExists {
+	if _, err := os.Stat(correctPath); os.IsNotExist(err) {
 		t.Errorf("expected migrated file at correct path: %s", correctPath)
 	}
-
-	// Original should be removed
+	if _, err := os.Stat(wrongPath); !os.IsNotExist(err) {
+		t.Errorf("file migrated to wrong path (extracted IMP instead of IMP-123)")
+	}
 	if _, err := os.Stat(planFile); !os.IsNotExist(err) {
 		t.Errorf("expected original file to be removed")
 	}
 }
 
 func TestFindMigrationCandidates_SkipsNonTicketFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
-	// Create a non-ticket file that matches pattern but isn't a ticket file
-	if err := os.WriteFile(filepath.Join(dir, "DATABASE_PLAN.md"), []byte("content"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a valid ticket file
-	if err := os.WriteFile(filepath.Join(dir, "IMP-123_PLAN.md"), []byte("content"), 0644); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"DATABASE_PLAN.md", "IMP-123_PLAN.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("content"), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	candidates := findMigrationCandidates(dir)
 
-	// Should only find IMP-123_PLAN.md, not DATABASE_PLAN.md
+	// Invariant: long-word filenames (DATABASE_PLAN.md) must not be treated as ticket files.
 	found := false
 	nonTicketFound := false
 	for _, c := range candidates {
@@ -607,66 +590,50 @@ func TestFindMigrationCandidates_SkipsNonTicketFiles(t *testing.T) {
 }
 
 func TestMoveFileToLooperStructure_ExtractsHyphenatedTicketID(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
-	// Create .looper directory
-	looperDir := filepath.Join(dir, ".looper")
-	if err := os.MkdirAll(looperDir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".looper"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create source file with hyphenated ticket ID
 	srcFile := filepath.Join(dir, "IMP-123_PLAN.md")
 	if err := os.WriteFile(srcFile, []byte("plan content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Move the file
-	err := moveFileToLooperStructure(dir, "IMP-123_PLAN.md")
-	if err != nil {
+	if err := moveFileToLooperStructure(dir, "IMP-123_PLAN.md"); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	// Verify file is at correct location
 	expectedPath := filepath.Join(dir, ".looper", "IMP-123", "IMP-123_PLAN.md")
 	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
 		t.Errorf("expected file at %s", expectedPath)
 	}
 
-	// Verify source is removed
 	if _, err := os.Stat(srcFile); !os.IsNotExist(err) {
 		t.Errorf("expected source file to be removed")
 	}
 }
 
 func TestVerifyAndGuide_ChecksCorrectConfigPath(t *testing.T) {
-	// This test verifies platform-aware config path checking
-	// For macOS, should check ~/Library/Application Support/looper/config.json
-	// For Linux, should check ~/.config/looper/config.json
-
+	t.Parallel()
 	dir := t.TempDir()
 	var out bytes.Buffer
 
-	// We can't easily mock UserHomeDir in the current structure,
-	// but we can verify the logic exists by checking the function runs
+	// Gotcha: UserHomeDir can't be mocked here; test only asserts the function runs without panic.
 	verifyAndGuide(&out, dir)
-
-	output := out.String()
-	// Just verify it completes without error
-	if len(output) < 0 {
-		t.Errorf("unexpected output")
-	}
 }
 
 func TestInitCmd_ConflictingFlags_ConfigOnlyAndSkipConfig(t *testing.T) {
+	t.Parallel()
 	cmd := newInitCmd()
 	dir := t.TempDir()
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 
-	// configOnly=true, skipConfig=true should return error
-	err := runInit(cmd, dir, true, false, true, true, false, false)
+	err := runInit(cmd, dir, initOptions{Yes: true, ConfigOnly: true, SkipConfig: true})
 	if err == nil {
 		t.Errorf("expected error when using --config-only and --skip-config together")
 	}

@@ -10,17 +10,18 @@ import (
 )
 
 var stackIndicators = []struct {
-	file    string
-	keyword string
+	file        string
+	keyword     string
+	displayName string
 }{
-	{"go.mod", "go"},
-	{"Gemfile", "rails"},
-	{"package.json", "node"},
-	{"pyproject.toml", "python"},
-	{"requirements.txt", "python"},
-	{"Cargo.toml", "rust"},
-	{"pom.xml", "java"},
-	{"build.gradle", "java"},
+	{"go.mod", "go", "Go"},
+	{"Gemfile", "rails", "Ruby/Rails"},
+	{"package.json", "node", "Node.js/JavaScript"},
+	{"pyproject.toml", "python", "Python"},
+	{"requirements.txt", "python", "Python"},
+	{"Cargo.toml", "rust", "Rust"},
+	{"pom.xml", "java", "Java/Maven"},
+	{"build.gradle", "java", "Java/Maven"},
 }
 
 // Why: silent when no stack is detected so greenfield repos don't generate noise.
