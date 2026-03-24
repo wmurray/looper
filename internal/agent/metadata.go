@@ -1,0 +1,55 @@
+package agent
+
+import (
+	"os"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Metadata holds YAML frontmatter parsed from an agent .md file.
+type Metadata struct {
+	Role        string   `yaml:"role"`
+	Languages   []string `yaml:"languages"`
+	Frameworks  []string `yaml:"frameworks"`
+	Level       string   `yaml:"level"`
+	Description string   `yaml:"description"`
+	Path        string   // populated by caller, not from frontmatter
+}
+
+// ParseMetadata reads the file at path and returns its YAML frontmatter.
+// If no frontmatter is present, returns a zero Metadata (not an error).
+// Languages and frameworks are normalised to lowercase.
+func ParseMetadata(path string) (Metadata, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Metadata{}, err
+	}
+
+	content := string(data)
+	if !strings.HasPrefix(content, "---") {
+		return Metadata{Path: path}, nil
+	}
+
+	// Find the closing --- delimiter.
+	rest := content[3:]
+	end := strings.Index(rest, "\n---")
+	if end < 0 {
+		return Metadata{Path: path}, nil
+	}
+	frontmatter := rest[:end]
+
+	var m Metadata
+	if err := yaml.Unmarshal([]byte(frontmatter), &m); err != nil {
+		return Metadata{}, err
+	}
+
+	for i, l := range m.Languages {
+		m.Languages[i] = strings.ToLower(l)
+	}
+	for i, f := range m.Frameworks {
+		m.Frameworks[i] = strings.ToLower(f)
+	}
+	m.Path = path
+	return m, nil
+}

@@ -27,19 +27,77 @@ type Defaults struct {
 	Timeout int `json:"timeout"`
 }
 
+type Reviewers struct {
+	General     string   `json:"general"`
+	Specialized []string `json:"specialized"`
+}
+
+type ReviewStrategy struct {
+	Mode                    string  `json:"mode"`
+	GeneralEvery            int     `json:"general_every"`
+	SpecializedEvery        int     `json:"specialized_every"`
+	SpecializedOnCompletion bool    `json:"specialized_on_completion"`
+	MajorityThreshold       float64 `json:"majority_threshold"`
+}
+
 type Config struct {
-	Backend       string   `json:"backend"`
-	Defaults      Defaults `json:"defaults"`
-	SkillPath     string   `json:"skill_path"`
-	ReviewerAgent string   `json:"reviewer_agent"`
-	TicketPattern string   `json:"ticket_pattern"`
-	Retries       *int     `json:"retries,omitempty"`
-	ReviewEvery   *int     `json:"review_every,omitempty"`
-	TrustedDirs   []string `json:"trusted_dirs,omitempty"`
-	PolishAgent   string   `json:"polish_agent,omitempty"`
-	PolishCmds    []string `json:"polish_cmds,omitempty"`
-	Notify        bool     `json:"notify,omitempty"`
-	NotifyWebhook string   `json:"notify_webhook,omitempty"`
+	Backend        string          `json:"backend"`
+	Defaults       Defaults        `json:"defaults"`
+	SkillPath      string          `json:"skill_path"`
+	ReviewerAgent  string          `json:"reviewer_agent"`
+	TicketPattern  string          `json:"ticket_pattern"`
+	Retries        *int            `json:"retries,omitempty"`
+	ReviewEvery    *int            `json:"review_every,omitempty"`
+	TrustedDirs    []string        `json:"trusted_dirs,omitempty"`
+	PolishAgent    string          `json:"polish_agent,omitempty"`
+	PolishCmds     []string        `json:"polish_cmds,omitempty"`
+	Notify         bool            `json:"notify,omitempty"`
+	NotifyWebhook  string          `json:"notify_webhook,omitempty"`
+	Reviewers      *Reviewers      `json:"reviewers,omitempty"`
+	ReviewStrategy *ReviewStrategy `json:"review_strategy,omitempty"`
+}
+
+// MigrateReviewerAgent converts the deprecated ReviewerAgent string field to
+// Reviewers.General on load. In-memory only — never rewrites the config file.
+func MigrateReviewerAgent(cfg *Config) {
+	if cfg.ReviewerAgent != "" && cfg.Reviewers == nil {
+		cfg.Reviewers = &Reviewers{General: cfg.ReviewerAgent}
+	}
+}
+
+// EffectiveReviewers returns cfg.Reviewers with defaults applied.
+func EffectiveReviewers(cfg Config) Reviewers {
+	if cfg.Reviewers != nil {
+		return *cfg.Reviewers
+	}
+	return Reviewers{General: cfg.ReviewerAgent}
+}
+
+// EffectiveReviewStrategy returns cfg.ReviewStrategy with defaults applied.
+func EffectiveReviewStrategy(cfg Config) ReviewStrategy {
+	s := ReviewStrategy{
+		Mode:             "smart",
+		GeneralEvery:     1,
+		SpecializedEvery: 3,
+		MajorityThreshold: 0.6,
+	}
+	if cfg.ReviewStrategy == nil {
+		return s
+	}
+	r := *cfg.ReviewStrategy
+	if r.Mode == "" {
+		r.Mode = s.Mode
+	}
+	if r.GeneralEvery == 0 {
+		r.GeneralEvery = s.GeneralEvery
+	}
+	if r.SpecializedEvery == 0 {
+		r.SpecializedEvery = s.SpecializedEvery
+	}
+	if r.MajorityThreshold == 0 {
+		r.MajorityThreshold = s.MajorityThreshold
+	}
+	return r
 }
 
 var defaultConfig = Config{

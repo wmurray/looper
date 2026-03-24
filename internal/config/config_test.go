@@ -1036,3 +1036,42 @@ func TestLoadWithRepo_RepoConfigOverridesCycles(t *testing.T) {
 		t.Errorf("backend = %q, want %q", cfg.Backend, defaultConfig.Backend)
 	}
 }
+
+// --- MigrateReviewerAgent ---
+
+func TestMigrateReviewerAgent(t *testing.T) {
+	cfg := Config{ReviewerAgent: "path/to/agent.md"}
+	MigrateReviewerAgent(&cfg)
+	if cfg.Reviewers == nil {
+		t.Fatal("Reviewers should not be nil after migration")
+	}
+	if cfg.Reviewers.General != "path/to/agent.md" {
+		t.Errorf("Reviewers.General = %q, want %q", cfg.Reviewers.General, "path/to/agent.md")
+	}
+}
+
+func TestMigrateNoOp(t *testing.T) {
+	existing := &Reviewers{General: "other/agent.md"}
+	cfg := Config{ReviewerAgent: "path/to/agent.md", Reviewers: existing}
+	MigrateReviewerAgent(&cfg)
+	if cfg.Reviewers.General != "other/agent.md" {
+		t.Errorf("migration must not overwrite existing Reviewers: got %q", cfg.Reviewers.General)
+	}
+}
+
+func TestEffectiveReviewStrategyDefaults(t *testing.T) {
+	cfg := Config{}
+	s := EffectiveReviewStrategy(cfg)
+	if s.Mode != "smart" {
+		t.Errorf("Mode = %q, want %q", s.Mode, "smart")
+	}
+	if s.GeneralEvery != 1 {
+		t.Errorf("GeneralEvery = %d, want 1", s.GeneralEvery)
+	}
+	if s.SpecializedEvery != 3 {
+		t.Errorf("SpecializedEvery = %d, want 3", s.SpecializedEvery)
+	}
+	if s.MajorityThreshold != 0.6 {
+		t.Errorf("MajorityThreshold = %f, want 0.6", s.MajorityThreshold)
+	}
+}

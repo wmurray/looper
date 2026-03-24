@@ -3,6 +3,7 @@ package progress
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -54,6 +55,12 @@ func (w *Writer) WriteExecution(output string) error {
 
 func (w *Writer) WriteReview(output string) error {
 	return w.append(fmt.Sprintf("### Review\n\n%s\n\n", output))
+}
+
+// WriteReviewerResult writes one reviewer's output under a labelled heading.
+func (w *Writer) WriteReviewerResult(reviewerPath, output string) error {
+	label := filepath.Base(reviewerPath)
+	return w.append(fmt.Sprintf("### Review (%s)\n\n%s\n\n", label, output))
 }
 
 func (w *Writer) WriteGuardAlert(msg string) error {
