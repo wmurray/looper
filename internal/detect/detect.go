@@ -46,8 +46,9 @@ func FromFileExtensions(paths []string) Detection {
 	return Detection{Languages: langs}
 }
 
-// FromGitDiff returns the set of languages inferred from file extensions
-// present in the unified diff output.
+// FromGitDiff returns the set of languages inferred from file extensions in a
+// unified diff. Only added or modified files (+++ b/ lines) are considered;
+// deleted files (--- a/ lines) are not detected.
 func FromGitDiff(diff string) Detection {
 	var paths []string
 	for _, line := range strings.Split(diff, "\n") {

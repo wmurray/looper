@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"os"
 	"strings"
 
@@ -34,7 +35,8 @@ func ParseMetadata(path string) (Metadata, error) {
 	rest := content[4:]
 	end := strings.Index(rest, "\n---\n")
 	if end < 0 {
-		return Metadata{Path: path}, nil
+		// Gotcha: opening --- found but no closing --- means the file is malformed, not just frontmatter-free.
+		return Metadata{}, errors.New("agent.ParseMetadata: unclosed frontmatter block (opening --- has no matching closing ---)")
 	}
 	frontmatter := rest[:end]
 

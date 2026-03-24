@@ -40,6 +40,7 @@ func SelectReviewers(
 		return result
 
 	default: // "smart"
+		// TODO: GeneralEvery not yet consulted; general reviewer runs every cycle regardless of strategy.GeneralEvery.
 		add(reviewers.General)
 		detectedSet := map[string]bool{}
 		for _, l := range detected.Languages {

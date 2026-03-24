@@ -86,6 +86,21 @@ func TestParseMetadataDashPrefix(t *testing.T) {
 	}
 }
 
+func TestParseMetadataMalformedFrontmatter(t *testing.T) {
+	t.Parallel()
+	// Opening --- present but no closing ---; should return an error.
+	content := "---\nrole: reviewer\nlanguages:\n  - go\n"
+	path := filepath.Join(t.TempDir(), "agent.md")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	_, err := agent.ParseMetadata(path)
+	if err == nil {
+		t.Fatal("ParseMetadata: expected error for unclosed frontmatter, got nil")
+	}
+}
+
 func TestParseMetadataLowercaseNormalization(t *testing.T) {
 	t.Parallel()
 	content := "---\nlanguages:\n  - Go\n  - TypeScript\n---\n"

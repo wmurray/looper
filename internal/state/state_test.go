@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,6 +131,10 @@ func TestWriteRead_RoundTrip(t *testing.T) {
 			PrevIssues:     "bug,error",
 			StartedAt:      now,
 			UpdatedAt:      now.Add(time.Minute),
+			ReviewerApprovals: map[string]bool{
+				"/abs/reviewers/general.md": true,
+				"/abs/reviewers/spec.md":    false,
+			},
 		}
 
 		if err := state.Write(in); err != nil {
@@ -147,6 +152,11 @@ func TestWriteRead_RoundTrip(t *testing.T) {
 			got.PrevIssues != in.PrevIssues ||
 			!got.StartedAt.Equal(in.StartedAt) || !got.UpdatedAt.Equal(in.UpdatedAt) {
 			t.Errorf("round-trip mismatch:\n got  %+v\n want %+v", got, in)
+		}
+		if len(got.ReviewerApprovals) != 2 ||
+			!got.ReviewerApprovals["/abs/reviewers/general.md"] ||
+			got.ReviewerApprovals["/abs/reviewers/spec.md"] {
+			t.Errorf("ReviewerApprovals round-trip mismatch: got %v", got.ReviewerApprovals)
 		}
 	})
 }
@@ -197,6 +207,28 @@ func TestDelete_MissingFile(t *testing.T) {
 	inTempDir(t, func() {
 		if err := state.Delete("NOTEXIST-99"); err != nil {
 			t.Errorf("Delete on missing file: want nil, got %v", err)
+		}
+	})
+}
+
+func TestDelete_ErrorIncludesPath(t *testing.T) {
+	inTempDir(t, func() {
+		ticket := "ERRPATH-1"
+		// Create new-path as a non-empty directory so os.Remove fails with ENOTEMPTY.
+		stateDir := state.NewPath(ticket)
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		sentinel := filepath.Join(stateDir, "sentinel")
+		if err := os.WriteFile(sentinel, []byte("x"), 0o644); err != nil {
+			t.Fatalf("WriteFile sentinel: %v", err)
+		}
+		err := state.Delete(ticket)
+		if err == nil {
+			t.Fatal("expected error when state path is a non-empty directory, got nil")
+		}
+		if !strings.Contains(err.Error(), state.NewPath(ticket)) {
+			t.Errorf("error %q does not contain the failed path %q", err.Error(), state.NewPath(ticket))
 		}
 	})
 }

@@ -302,6 +302,7 @@ func TestSave_FilePermissions(t *testing.T) {
 }
 
 func TestGet_LinearAPIKey_ReturnsUnknownError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Get(cfg, "linear_api_key")
 	if err == nil {
@@ -310,6 +311,7 @@ func TestGet_LinearAPIKey_ReturnsUnknownError(t *testing.T) {
 }
 
 func TestSet_LinearAPIKey_ReturnsUnknownError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "linear_api_key", "lin_api_abc123")
 	if err == nil {
@@ -542,6 +544,7 @@ func TestLoadWithRepo_ReadErrorIncludesPath(t *testing.T) {
 }
 
 func TestApplyRepoOverlay_TrustedDirsExcluded(t *testing.T) {
+	t.Parallel()
 	dst := Config{TrustedDirs: []string{"/existing"}}
 	src := Config{TrustedDirs: []string{"/injected"}, Backend: "cursor"}
 
@@ -624,6 +627,7 @@ func TestLoad_MissingFile_ReturnsDefaults_Hermetic(t *testing.T) {
 }
 
 func TestGet_PolishAgent(t *testing.T) {
+	t.Parallel()
 	cfg := Config{PolishAgent: "/some/polish-agent.md"}
 	val, err := Get(cfg, "polish_agent")
 	if err != nil {
@@ -635,6 +639,7 @@ func TestGet_PolishAgent(t *testing.T) {
 }
 
 func TestGet_PolishCmds(t *testing.T) {
+	t.Parallel()
 	cfg := Config{PolishCmds: []string{"go fmt ./...", "go vet ./..."}}
 	val, err := Get(cfg, "polish_cmds")
 	if err != nil {
@@ -646,6 +651,7 @@ func TestGet_PolishCmds(t *testing.T) {
 }
 
 func TestGet_PolishCmds_Empty(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	val, err := Get(cfg, "polish_cmds")
 	if err != nil {
@@ -657,6 +663,7 @@ func TestGet_PolishCmds_Empty(t *testing.T) {
 }
 
 func TestSet_PolishAgent(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "polish_agent", "/my/agent.md")
 	if err != nil {
@@ -668,6 +675,7 @@ func TestSet_PolishAgent(t *testing.T) {
 }
 
 func TestSet_PolishCmds(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "polish_cmds", "go fmt ./...,go vet ./...")
 	if err != nil {
@@ -685,6 +693,7 @@ func TestSet_PolishCmds(t *testing.T) {
 }
 
 func TestSet_PolishCmds_EmptyRejectsBlank(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "polish_cmds", "   ,  ,  ")
 	if err == nil {
@@ -693,6 +702,7 @@ func TestSet_PolishCmds_EmptyRejectsBlank(t *testing.T) {
 }
 
 func TestApplyRepoOverlay_PolishFields(t *testing.T) {
+	t.Parallel()
 	dst := Config{}
 	src := Config{PolishAgent: "/src/agent.md", PolishCmds: []string{"go fmt ./..."}}
 	result, keys := applyRepoOverlay(dst, src)
@@ -714,6 +724,7 @@ func TestApplyRepoOverlay_PolishFields(t *testing.T) {
 }
 
 func TestSet_Notify_True(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "notify", "true")
 	if err != nil {
@@ -725,6 +736,7 @@ func TestSet_Notify_True(t *testing.T) {
 }
 
 func TestSet_Notify_False(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Notify: true}
 	updated, err := Set(cfg, "notify", "false")
 	if err != nil {
@@ -736,6 +748,7 @@ func TestSet_Notify_False(t *testing.T) {
 }
 
 func TestSet_Notify_Invalid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "notify", "yes")
 	if err == nil {
@@ -744,6 +757,7 @@ func TestSet_Notify_Invalid(t *testing.T) {
 }
 
 func TestGet_Notify_True(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Notify: true}
 	val, err := Get(cfg, "notify")
 	if err != nil {
@@ -755,6 +769,7 @@ func TestGet_Notify_True(t *testing.T) {
 }
 
 func TestGet_Notify_False(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Notify: false}
 	val, err := Get(cfg, "notify")
 	if err != nil {
@@ -766,6 +781,7 @@ func TestGet_Notify_False(t *testing.T) {
 }
 
 func TestSet_NotifyWebhook(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "notify_webhook", "https://hooks.slack.com/test")
 	if err != nil {
@@ -779,6 +795,7 @@ func TestSet_NotifyWebhook(t *testing.T) {
 // --- retries key ---
 
 func TestSet_Retries_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "retries", "3")
 	if err != nil {
@@ -790,6 +807,7 @@ func TestSet_Retries_Valid(t *testing.T) {
 }
 
 func TestSet_Retries_Zero(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Retries: intPtr(2)}
 	updated, err := Set(cfg, "retries", "0")
 	if err != nil {
@@ -801,6 +819,7 @@ func TestSet_Retries_Zero(t *testing.T) {
 }
 
 func TestSet_Retries_Negative_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "retries", "-1")
 	if err == nil {
@@ -809,6 +828,7 @@ func TestSet_Retries_Negative_ReturnsError(t *testing.T) {
 }
 
 func TestSet_Retries_NonInt_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "retries", "abc")
 	if err == nil {
@@ -817,6 +837,7 @@ func TestSet_Retries_NonInt_ReturnsError(t *testing.T) {
 }
 
 func TestGet_Retries(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Retries: intPtr(3)}
 	val, err := Get(cfg, "retries")
 	if err != nil {
@@ -828,6 +849,7 @@ func TestGet_Retries(t *testing.T) {
 }
 
 func TestGet_Retries_Nil(t *testing.T) {
+	t.Parallel()
 	cfg := Config{} // Retries is nil
 	val, err := Get(cfg, "retries")
 	if err != nil {
@@ -839,6 +861,7 @@ func TestGet_Retries_Nil(t *testing.T) {
 }
 
 func TestGet_Retries_RoundTrip(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "retries", "3")
 	if err != nil {
@@ -854,6 +877,7 @@ func TestGet_Retries_RoundTrip(t *testing.T) {
 }
 
 func TestApplyRepoOverlay_Retries(t *testing.T) {
+	t.Parallel()
 	dst := Config{}
 	src := Config{Retries: intPtr(2)}
 	result, keys := applyRepoOverlay(dst, src)
@@ -871,15 +895,12 @@ func TestApplyRepoOverlay_Retries(t *testing.T) {
 	}
 }
 
-// TestApplyRepoOverlay_RetriesZeroNotOverridden documents that retries: 0 in a
-// repo config cannot clear a non-zero global value. This is intentional: the
-// same > 0 sentinel used by cycles and timeout is applied here for consistency.
-// A follow-up could allow zero to mean "disable" if that use case arises.
 // TestApplyRepoOverlay_RetriesZeroOverridesGlobal documents that retries: 0 in
 // a repo config must override a non-zero global value. This requires *int so
 // that a nil pointer (absent from JSON) is distinguishable from a pointer to 0
 // (explicitly set to zero).
 func TestApplyRepoOverlay_RetriesZeroOverridesGlobal(t *testing.T) {
+	t.Parallel()
 	dst := Config{Retries: intPtr(2)}
 	src := Config{Retries: intPtr(0)}
 	result, keys := applyRepoOverlay(dst, src)
@@ -900,6 +921,7 @@ func TestApplyRepoOverlay_RetriesZeroOverridesGlobal(t *testing.T) {
 // TestApplyRepoOverlay_RetriesAbsentDoesNotOverride documents that a repo
 // config with no retries field (nil pointer) leaves the global value intact.
 func TestApplyRepoOverlay_RetriesAbsentDoesNotOverride(t *testing.T) {
+	t.Parallel()
 	dst := Config{Retries: intPtr(2)}
 	src := Config{} // Retries is nil — not set in repo config
 	result, keys := applyRepoOverlay(dst, src)
@@ -918,6 +940,7 @@ func intPtr(n int) *int { return &n }
 // --- review_every key ---
 
 func TestSet_ReviewEvery_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "review_every", "3")
 	if err != nil {
@@ -929,6 +952,7 @@ func TestSet_ReviewEvery_Valid(t *testing.T) {
 }
 
 func TestSet_ReviewEvery_One(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "review_every", "1")
 	if err != nil {
@@ -940,6 +964,7 @@ func TestSet_ReviewEvery_One(t *testing.T) {
 }
 
 func TestSet_ReviewEvery_Zero_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "review_every", "0")
 	if err == nil {
@@ -948,6 +973,7 @@ func TestSet_ReviewEvery_Zero_ReturnsError(t *testing.T) {
 }
 
 func TestSet_ReviewEvery_Negative_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "review_every", "-1")
 	if err == nil {
@@ -956,6 +982,7 @@ func TestSet_ReviewEvery_Negative_ReturnsError(t *testing.T) {
 }
 
 func TestGet_ReviewEvery_Nil(t *testing.T) {
+	t.Parallel()
 	cfg := Config{} // ReviewEvery is nil
 	val, err := Get(cfg, "review_every")
 	if err != nil {
@@ -967,6 +994,7 @@ func TestGet_ReviewEvery_Nil(t *testing.T) {
 }
 
 func TestGet_ReviewEvery_Set(t *testing.T) {
+	t.Parallel()
 	cfg := Config{ReviewEvery: intPtr(4)}
 	val, err := Get(cfg, "review_every")
 	if err != nil {
@@ -978,6 +1006,7 @@ func TestGet_ReviewEvery_Set(t *testing.T) {
 }
 
 func TestGet_ReviewEvery_RoundTrip(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "review_every", "3")
 	if err != nil {
@@ -993,6 +1022,7 @@ func TestGet_ReviewEvery_RoundTrip(t *testing.T) {
 }
 
 func TestApplyRepoOverlay_ReviewEvery(t *testing.T) {
+	t.Parallel()
 	dst := Config{}
 	src := Config{ReviewEvery: intPtr(2)}
 	result, keys := applyRepoOverlay(dst, src)
@@ -1011,6 +1041,7 @@ func TestApplyRepoOverlay_ReviewEvery(t *testing.T) {
 }
 
 func TestApplyRepoOverlay_ReviewEveryAbsentDoesNotOverride(t *testing.T) {
+	t.Parallel()
 	dst := Config{ReviewEvery: intPtr(3)}
 	src := Config{} // ReviewEvery is nil
 	result, keys := applyRepoOverlay(dst, src)
@@ -1025,6 +1056,7 @@ func TestApplyRepoOverlay_ReviewEveryAbsentDoesNotOverride(t *testing.T) {
 }
 
 func TestGet_NotifyWebhook(t *testing.T) {
+	t.Parallel()
 	cfg := Config{NotifyWebhook: "https://hooks.slack.com/test"}
 	val, err := Get(cfg, "notify_webhook")
 	if err != nil {
