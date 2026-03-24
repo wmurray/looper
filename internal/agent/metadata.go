@@ -14,7 +14,7 @@ type Metadata struct {
 	Frameworks  []string `yaml:"frameworks"`
 	Level       string   `yaml:"level"`
 	Description string   `yaml:"description"`
-	Path        string   // populated by caller, not from frontmatter
+	Path        string   // set to the file path by ParseMetadata; not from frontmatter
 }
 
 // ParseMetadata reads the file at path and returns its YAML frontmatter.

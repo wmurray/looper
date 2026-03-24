@@ -81,6 +81,39 @@ func TestSelectReviewersLanguageMatch(t *testing.T) {
 	}
 }
 
+func TestSelectReviewersSpecializedOnCompletion(t *testing.T) {
+	t.Parallel()
+	reviewers := config.Reviewers{General: "general.md", Specialized: []string{"spec.md"}}
+	strategy := config.ReviewStrategy{
+		Mode:                    "smart",
+		GeneralEvery:            1,
+		SpecializedEvery:        10,
+		SpecializedOnCompletion: true,
+		MajorityThreshold:       0.6,
+	}
+	metadata := map[string]agent.Metadata{} // no language match
+
+	// Final cycle: SpecializedOnCompletion should trigger spec.md even though i%10 != 0.
+	got := selector.SelectReviewers(reviewers, strategy, metadata, detect.Detection{}, 5, 5)
+	found := false
+	for _, r := range got {
+		if r == "spec.md" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("final cycle: spec.md should appear with SpecializedOnCompletion=true, got %v", got)
+	}
+
+	// Non-final cycle not on schedule: spec.md must not appear.
+	got2 := selector.SelectReviewers(reviewers, strategy, metadata, detect.Detection{}, 2, 5)
+	for _, r := range got2 {
+		if r == "spec.md" {
+			t.Errorf("non-final cycle: spec.md should not appear, got %v", got2)
+		}
+	}
+}
+
 func TestSelectReviewersDedup(t *testing.T) {
 	t.Parallel()
 	// general and specialized are the same path.

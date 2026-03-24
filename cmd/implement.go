@@ -33,7 +33,7 @@ var (
 	flagTimeout     int
 	flagDryRun      bool
 	flagYes         bool
-	flagReviewer    string
+	flagReviewer    string // TODO: wire up --reviewer flag to override reviewer_agent per-run
 	flagStream      bool
 	flagNotify      bool
 	flagRetries     int
@@ -273,9 +273,6 @@ func appendRunLog(ticket, outcome string, cyclesUsed, cyclesMax int, guardEvents
 	})
 }
 
-// implementLoopFrom is the shared loop body used by implementLoop and resumeCmd.
-// startCycle lets resume skip already-completed cycles; g carries restored guard
-// counters so thrash/stuck detection is continuous across resumptions.
 // buildMetadataMap loads agent metadata for all reviewers in r, keyed by path.
 func buildMetadataMap(r *config.Reviewers) map[string]agent.Metadata {
 	m := map[string]agent.Metadata{}
@@ -301,6 +298,9 @@ func buildMetadataMap(r *config.Reviewers) map[string]agent.Metadata {
 	return m
 }
 
+// implementLoopFrom is the shared loop body used by implementLoop and resumeCmd.
+// startCycle lets resume skip already-completed cycles; guardState carries restored
+// guard counters so thrash/stuck detection is continuous across resumptions.
 func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout, retries, reviewEvery int, stream bool, startCycle int, guardState *guards.State, startedAt time.Time) error {
 	skillPath := config.ExpandPath(cfg.SkillPath)
 	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
@@ -415,9 +415,10 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 			reviewProgressContent := lastNRuns(string(reviewProgressBytes), 2)
 
 			detected := detect.FromGitDiff(gitDiff)
+			strategy := config.EffectiveReviewStrategy(cfg)
 			reviewerPaths := selector.SelectReviewers(
 				config.EffectiveReviewers(cfg),
-				config.EffectiveReviewStrategy(cfg),
+				strategy,
 				metadataMap,
 				detected,
 				i, cycles,
@@ -475,6 +476,7 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 			}
 
 			// --- PERSIST STATE (best-effort) ---
+			// Gotcha: ReviewerApprovals is keyed by expanded paths; metadataMap uses unexpanded paths — never compare the two maps directly.
 			_ = looperstate.Write(looperstate.State{
 				Ticket:            ticket,
 				PlanFile:          planFile,
@@ -488,8 +490,7 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 				ReviewerApprovals: reviewerApprovals,
 			})
 
-			threshold := config.EffectiveReviewStrategy(cfg).MajorityThreshold
-			approved := selector.MajorityApproved(approvals, len(reviewerPaths), threshold)
+			approved := selector.MajorityApproved(approvals, len(reviewerPaths), strategy.MajorityThreshold)
 			if approved {
 				_ = pw.WriteSuccess(i)
 				_ = pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))

@@ -201,6 +201,37 @@ func TestDelete_MissingFile(t *testing.T) {
 	})
 }
 
+func TestWriteRead_ReviewerApprovals(t *testing.T) {
+	inTempDir(t, func() {
+		ticket := "RA-1"
+		in := state.State{
+			Ticket:         ticket,
+			CyclesTotal:    3,
+			CycleCompleted: 1,
+			ReviewerApprovals: map[string]bool{
+				"/abs/path/general.md": true,
+				"/abs/path/spec.md":    false,
+			},
+		}
+		if err := state.Write(in); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		got, err := state.Read(ticket)
+		if err != nil {
+			t.Fatalf("Read: %v", err)
+		}
+		if len(got.ReviewerApprovals) != 2 {
+			t.Fatalf("ReviewerApprovals len = %d, want 2", len(got.ReviewerApprovals))
+		}
+		if !got.ReviewerApprovals["/abs/path/general.md"] {
+			t.Errorf("general.md should be approved")
+		}
+		if got.ReviewerApprovals["/abs/path/spec.md"] {
+			t.Errorf("spec.md should not be approved")
+		}
+	})
+}
+
 func TestWrite_Idempotent(t *testing.T) {
 	inTempDir(t, func() {
 		ticket := "IDEM-1"

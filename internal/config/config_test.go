@@ -57,6 +57,7 @@ func TestLoad_InvalidJSON_ReturnsError(t *testing.T) {
 // --- Get ---
 
 func TestGet_ValidKeys(t *testing.T) {
+	t.Parallel()
 	cfg := Config{
 		Backend:       "claude",
 		Defaults:      Defaults{Cycles: 3, Timeout: 300},
@@ -87,6 +88,7 @@ func TestGet_ValidKeys(t *testing.T) {
 }
 
 func TestGet_UnknownKey_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Get(cfg, "nonexistent.key")
 	if err == nil {
@@ -97,6 +99,7 @@ func TestGet_UnknownKey_ReturnsError(t *testing.T) {
 // --- Set ---
 
 func TestSet_Backend_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Backend: "cursor"}
 	updated, err := Set(cfg, "backend", "claude")
 	if err != nil {
@@ -108,6 +111,7 @@ func TestSet_Backend_Valid(t *testing.T) {
 }
 
 func TestSet_Backend_Invalid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "backend", "openai")
 	if err == nil {
@@ -116,6 +120,7 @@ func TestSet_Backend_Invalid(t *testing.T) {
 }
 
 func TestSet_Cycles_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Defaults: Defaults{Cycles: 5}}
 	updated, err := Set(cfg, "defaults.cycles", "10")
 	if err != nil {
@@ -127,6 +132,7 @@ func TestSet_Cycles_Valid(t *testing.T) {
 }
 
 func TestSet_Cycles_Zero_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "defaults.cycles", "0")
 	if err == nil {
@@ -135,6 +141,7 @@ func TestSet_Cycles_Zero_ReturnsError(t *testing.T) {
 }
 
 func TestSet_Cycles_Negative_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "defaults.cycles", "-1")
 	if err == nil {
@@ -143,6 +150,7 @@ func TestSet_Cycles_Negative_ReturnsError(t *testing.T) {
 }
 
 func TestSet_Timeout_BelowMinimum_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "defaults.timeout", "5")
 	if err == nil {
@@ -151,6 +159,7 @@ func TestSet_Timeout_BelowMinimum_ReturnsError(t *testing.T) {
 }
 
 func TestSet_Timeout_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "defaults.timeout", "60")
 	if err != nil {
@@ -162,6 +171,7 @@ func TestSet_Timeout_Valid(t *testing.T) {
 }
 
 func TestSet_SkillPath(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "skill_path", "/new/path/skill.md")
 	if err != nil {
@@ -173,6 +183,7 @@ func TestSet_SkillPath(t *testing.T) {
 }
 
 func TestSet_UnknownKey_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "unknown.key", "value")
 	if err == nil {
@@ -183,6 +194,7 @@ func TestSet_UnknownKey_ReturnsError(t *testing.T) {
 // --- IsTrusted / TrustDir ---
 
 func TestIsTrusted_NotInList(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	if IsTrusted(cfg, "/some/dir") {
 		t.Fatal("expected false for empty trusted list")
@@ -190,6 +202,7 @@ func TestIsTrusted_NotInList(t *testing.T) {
 }
 
 func TestIsTrusted_InList(t *testing.T) {
+	t.Parallel()
 	cfg := Config{TrustedDirs: []string{"/some/dir", "/other/dir"}}
 	if !IsTrusted(cfg, "/some/dir") {
 		t.Fatal("expected true for dir in trusted list")
@@ -197,6 +210,7 @@ func TestIsTrusted_InList(t *testing.T) {
 }
 
 func TestIsTrusted_ExactMatch(t *testing.T) {
+	t.Parallel()
 	cfg := Config{TrustedDirs: []string{"/some/dir"}}
 	if IsTrusted(cfg, "/some/dir/subdir") {
 		t.Fatal("should not match subdirectories — exact match only")
@@ -204,6 +218,7 @@ func TestIsTrusted_ExactMatch(t *testing.T) {
 }
 
 func TestTrustDir_AddsDir(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Backend: "claude", Defaults: Defaults{Cycles: 5, Timeout: 420}}
 	// Call the in-memory logic directly without saving to disk.
 	if IsTrusted(cfg, "/new/repo") {
@@ -216,8 +231,12 @@ func TestTrustDir_AddsDir(t *testing.T) {
 }
 
 func TestTrustDir_NoDuplicates(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg := Config{TrustedDirs: []string{"/existing/repo"}}
-	updated, _ := TrustDir(cfg, "/existing/repo")
+	updated, err := TrustDir(cfg, "/existing/repo")
+	if err != nil {
+		t.Fatalf("TrustDir: %v", err)
+	}
 	count := 0
 	for _, d := range updated.TrustedDirs {
 		if d == "/existing/repo" {
@@ -232,6 +251,7 @@ func TestTrustDir_NoDuplicates(t *testing.T) {
 // --- ExpandPath ---
 
 func TestExpandPath_Tilde(t *testing.T) {
+	t.Parallel()
 	home, _ := os.UserHomeDir()
 	result := ExpandPath("~/foo/bar")
 	expected := filepath.Join(home, "foo/bar")
@@ -241,6 +261,7 @@ func TestExpandPath_Tilde(t *testing.T) {
 }
 
 func TestExpandPath_AbsolutePath(t *testing.T) {
+	t.Parallel()
 	result := ExpandPath("/absolute/path")
 	if result != "/absolute/path" {
 		t.Errorf("ExpandPath should not modify absolute path, got %q", result)
@@ -248,6 +269,7 @@ func TestExpandPath_AbsolutePath(t *testing.T) {
 }
 
 func TestExpandPath_NoTilde(t *testing.T) {
+	t.Parallel()
 	result := ExpandPath("relative/path")
 	if result != "relative/path" {
 		t.Errorf("ExpandPath should not modify relative path without tilde, got %q", result)
@@ -1037,7 +1059,7 @@ func TestLoadWithRepo_RepoConfigOverridesCycles(t *testing.T) {
 	}
 }
 
-// --- MigrateReviewerAgent ---
+// --- applyRepoOverlay (reviewers / review_strategy) ---
 
 func TestApplyRepoOverlay_ReviewersOverrides(t *testing.T) {
 	t.Parallel()

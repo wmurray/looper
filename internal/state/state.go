@@ -12,7 +12,8 @@ import (
 // State persists loop progress after each completed cycle so looper resume can
 // restart from the last completed cycle rather than cycle 1.
 //
-// State is serialized to {TICKET}_STATE.json in the working directory.
+// Canonical path: .looper/{ticket}/{ticket}_STATE.json (NewPath).
+// Legacy fallback (read-only): {ticket}_STATE.json at the repo root (Path).
 type State struct {
 	Ticket            string          `json:"ticket"`
 	PlanFile          string          `json:"plan_file"`
