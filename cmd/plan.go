@@ -243,7 +243,9 @@ func resolvePlanPath(ticket string) (string, error) {
 	}
 
 	looperDir := filepath.Join(".looper", ticket)
-	os.MkdirAll(looperDir, 0755)
+	if err := os.MkdirAll(looperDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create .looper/%s directory: %w", ticket, err)
+	}
 
 	return newPath, nil
 }
