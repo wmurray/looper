@@ -8,6 +8,8 @@ import (
 	"testing"
 )
 
+func floatPtr(v float64) *float64 { return &v }
+
 // --- Load ---
 
 func TestLoad_MissingFile_ReturnsDefaults(t *testing.T) {
@@ -57,6 +59,7 @@ func TestLoad_InvalidJSON_ReturnsError(t *testing.T) {
 // --- Get ---
 
 func TestGet_ValidKeys(t *testing.T) {
+	t.Parallel()
 	cfg := Config{
 		Backend:       "claude",
 		Defaults:      Defaults{Cycles: 3, Timeout: 300},
@@ -87,6 +90,7 @@ func TestGet_ValidKeys(t *testing.T) {
 }
 
 func TestGet_UnknownKey_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Get(cfg, "nonexistent.key")
 	if err == nil {
@@ -97,6 +101,7 @@ func TestGet_UnknownKey_ReturnsError(t *testing.T) {
 // --- Set ---
 
 func TestSet_Backend_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Backend: "cursor"}
 	updated, err := Set(cfg, "backend", "claude")
 	if err != nil {
@@ -108,6 +113,7 @@ func TestSet_Backend_Valid(t *testing.T) {
 }
 
 func TestSet_Backend_Invalid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "backend", "openai")
 	if err == nil {
@@ -116,6 +122,7 @@ func TestSet_Backend_Invalid(t *testing.T) {
 }
 
 func TestSet_Cycles_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Defaults: Defaults{Cycles: 5}}
 	updated, err := Set(cfg, "defaults.cycles", "10")
 	if err != nil {
@@ -127,6 +134,7 @@ func TestSet_Cycles_Valid(t *testing.T) {
 }
 
 func TestSet_Cycles_Zero_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "defaults.cycles", "0")
 	if err == nil {
@@ -135,6 +143,7 @@ func TestSet_Cycles_Zero_ReturnsError(t *testing.T) {
 }
 
 func TestSet_Cycles_Negative_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "defaults.cycles", "-1")
 	if err == nil {
@@ -143,6 +152,7 @@ func TestSet_Cycles_Negative_ReturnsError(t *testing.T) {
 }
 
 func TestSet_Timeout_BelowMinimum_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "defaults.timeout", "5")
 	if err == nil {
@@ -151,6 +161,7 @@ func TestSet_Timeout_BelowMinimum_ReturnsError(t *testing.T) {
 }
 
 func TestSet_Timeout_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "defaults.timeout", "60")
 	if err != nil {
@@ -162,6 +173,7 @@ func TestSet_Timeout_Valid(t *testing.T) {
 }
 
 func TestSet_SkillPath(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "skill_path", "/new/path/skill.md")
 	if err != nil {
@@ -173,6 +185,7 @@ func TestSet_SkillPath(t *testing.T) {
 }
 
 func TestSet_UnknownKey_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "unknown.key", "value")
 	if err == nil {
@@ -183,6 +196,7 @@ func TestSet_UnknownKey_ReturnsError(t *testing.T) {
 // --- IsTrusted / TrustDir ---
 
 func TestIsTrusted_NotInList(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	if IsTrusted(cfg, "/some/dir") {
 		t.Fatal("expected false for empty trusted list")
@@ -190,6 +204,7 @@ func TestIsTrusted_NotInList(t *testing.T) {
 }
 
 func TestIsTrusted_InList(t *testing.T) {
+	t.Parallel()
 	cfg := Config{TrustedDirs: []string{"/some/dir", "/other/dir"}}
 	if !IsTrusted(cfg, "/some/dir") {
 		t.Fatal("expected true for dir in trusted list")
@@ -197,6 +212,7 @@ func TestIsTrusted_InList(t *testing.T) {
 }
 
 func TestIsTrusted_ExactMatch(t *testing.T) {
+	t.Parallel()
 	cfg := Config{TrustedDirs: []string{"/some/dir"}}
 	if IsTrusted(cfg, "/some/dir/subdir") {
 		t.Fatal("should not match subdirectories — exact match only")
@@ -204,6 +220,7 @@ func TestIsTrusted_ExactMatch(t *testing.T) {
 }
 
 func TestTrustDir_AddsDir(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Backend: "claude", Defaults: Defaults{Cycles: 5, Timeout: 420}}
 	// Call the in-memory logic directly without saving to disk.
 	if IsTrusted(cfg, "/new/repo") {
@@ -216,8 +233,12 @@ func TestTrustDir_AddsDir(t *testing.T) {
 }
 
 func TestTrustDir_NoDuplicates(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg := Config{TrustedDirs: []string{"/existing/repo"}}
-	updated, _ := TrustDir(cfg, "/existing/repo")
+	updated, err := TrustDir(cfg, "/existing/repo")
+	if err != nil {
+		t.Fatalf("TrustDir: %v", err)
+	}
 	count := 0
 	for _, d := range updated.TrustedDirs {
 		if d == "/existing/repo" {
@@ -232,6 +253,7 @@ func TestTrustDir_NoDuplicates(t *testing.T) {
 // --- ExpandPath ---
 
 func TestExpandPath_Tilde(t *testing.T) {
+	t.Parallel()
 	home, _ := os.UserHomeDir()
 	result := ExpandPath("~/foo/bar")
 	expected := filepath.Join(home, "foo/bar")
@@ -241,6 +263,7 @@ func TestExpandPath_Tilde(t *testing.T) {
 }
 
 func TestExpandPath_AbsolutePath(t *testing.T) {
+	t.Parallel()
 	result := ExpandPath("/absolute/path")
 	if result != "/absolute/path" {
 		t.Errorf("ExpandPath should not modify absolute path, got %q", result)
@@ -248,6 +271,7 @@ func TestExpandPath_AbsolutePath(t *testing.T) {
 }
 
 func TestExpandPath_NoTilde(t *testing.T) {
+	t.Parallel()
 	result := ExpandPath("relative/path")
 	if result != "relative/path" {
 		t.Errorf("ExpandPath should not modify relative path without tilde, got %q", result)
@@ -280,6 +304,7 @@ func TestSave_FilePermissions(t *testing.T) {
 }
 
 func TestGet_LinearAPIKey_ReturnsUnknownError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Get(cfg, "linear_api_key")
 	if err == nil {
@@ -288,6 +313,7 @@ func TestGet_LinearAPIKey_ReturnsUnknownError(t *testing.T) {
 }
 
 func TestSet_LinearAPIKey_ReturnsUnknownError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "linear_api_key", "lin_api_abc123")
 	if err == nil {
@@ -520,6 +546,7 @@ func TestLoadWithRepo_ReadErrorIncludesPath(t *testing.T) {
 }
 
 func TestApplyRepoOverlay_TrustedDirsExcluded(t *testing.T) {
+	t.Parallel()
 	dst := Config{TrustedDirs: []string{"/existing"}}
 	src := Config{TrustedDirs: []string{"/injected"}, Backend: "cursor"}
 
@@ -602,6 +629,7 @@ func TestLoad_MissingFile_ReturnsDefaults_Hermetic(t *testing.T) {
 }
 
 func TestGet_PolishAgent(t *testing.T) {
+	t.Parallel()
 	cfg := Config{PolishAgent: "/some/polish-agent.md"}
 	val, err := Get(cfg, "polish_agent")
 	if err != nil {
@@ -613,6 +641,7 @@ func TestGet_PolishAgent(t *testing.T) {
 }
 
 func TestGet_PolishCmds(t *testing.T) {
+	t.Parallel()
 	cfg := Config{PolishCmds: []string{"go fmt ./...", "go vet ./..."}}
 	val, err := Get(cfg, "polish_cmds")
 	if err != nil {
@@ -624,6 +653,7 @@ func TestGet_PolishCmds(t *testing.T) {
 }
 
 func TestGet_PolishCmds_Empty(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	val, err := Get(cfg, "polish_cmds")
 	if err != nil {
@@ -635,6 +665,7 @@ func TestGet_PolishCmds_Empty(t *testing.T) {
 }
 
 func TestSet_PolishAgent(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "polish_agent", "/my/agent.md")
 	if err != nil {
@@ -646,6 +677,7 @@ func TestSet_PolishAgent(t *testing.T) {
 }
 
 func TestSet_PolishCmds(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "polish_cmds", "go fmt ./...,go vet ./...")
 	if err != nil {
@@ -663,6 +695,7 @@ func TestSet_PolishCmds(t *testing.T) {
 }
 
 func TestSet_PolishCmds_EmptyRejectsBlank(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "polish_cmds", "   ,  ,  ")
 	if err == nil {
@@ -671,6 +704,7 @@ func TestSet_PolishCmds_EmptyRejectsBlank(t *testing.T) {
 }
 
 func TestApplyRepoOverlay_PolishFields(t *testing.T) {
+	t.Parallel()
 	dst := Config{}
 	src := Config{PolishAgent: "/src/agent.md", PolishCmds: []string{"go fmt ./..."}}
 	result, keys := applyRepoOverlay(dst, src)
@@ -692,6 +726,7 @@ func TestApplyRepoOverlay_PolishFields(t *testing.T) {
 }
 
 func TestSet_Notify_True(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "notify", "true")
 	if err != nil {
@@ -703,6 +738,7 @@ func TestSet_Notify_True(t *testing.T) {
 }
 
 func TestSet_Notify_False(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Notify: true}
 	updated, err := Set(cfg, "notify", "false")
 	if err != nil {
@@ -714,6 +750,7 @@ func TestSet_Notify_False(t *testing.T) {
 }
 
 func TestSet_Notify_Invalid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "notify", "yes")
 	if err == nil {
@@ -722,6 +759,7 @@ func TestSet_Notify_Invalid(t *testing.T) {
 }
 
 func TestGet_Notify_True(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Notify: true}
 	val, err := Get(cfg, "notify")
 	if err != nil {
@@ -733,6 +771,7 @@ func TestGet_Notify_True(t *testing.T) {
 }
 
 func TestGet_Notify_False(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Notify: false}
 	val, err := Get(cfg, "notify")
 	if err != nil {
@@ -744,6 +783,7 @@ func TestGet_Notify_False(t *testing.T) {
 }
 
 func TestSet_NotifyWebhook(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "notify_webhook", "https://hooks.slack.com/test")
 	if err != nil {
@@ -757,6 +797,7 @@ func TestSet_NotifyWebhook(t *testing.T) {
 // --- retries key ---
 
 func TestSet_Retries_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "retries", "3")
 	if err != nil {
@@ -768,6 +809,7 @@ func TestSet_Retries_Valid(t *testing.T) {
 }
 
 func TestSet_Retries_Zero(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Retries: intPtr(2)}
 	updated, err := Set(cfg, "retries", "0")
 	if err != nil {
@@ -779,6 +821,7 @@ func TestSet_Retries_Zero(t *testing.T) {
 }
 
 func TestSet_Retries_Negative_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "retries", "-1")
 	if err == nil {
@@ -787,6 +830,7 @@ func TestSet_Retries_Negative_ReturnsError(t *testing.T) {
 }
 
 func TestSet_Retries_NonInt_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "retries", "abc")
 	if err == nil {
@@ -795,6 +839,7 @@ func TestSet_Retries_NonInt_ReturnsError(t *testing.T) {
 }
 
 func TestGet_Retries(t *testing.T) {
+	t.Parallel()
 	cfg := Config{Retries: intPtr(3)}
 	val, err := Get(cfg, "retries")
 	if err != nil {
@@ -806,6 +851,7 @@ func TestGet_Retries(t *testing.T) {
 }
 
 func TestGet_Retries_Nil(t *testing.T) {
+	t.Parallel()
 	cfg := Config{} // Retries is nil
 	val, err := Get(cfg, "retries")
 	if err != nil {
@@ -817,6 +863,7 @@ func TestGet_Retries_Nil(t *testing.T) {
 }
 
 func TestGet_Retries_RoundTrip(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "retries", "3")
 	if err != nil {
@@ -832,6 +879,7 @@ func TestGet_Retries_RoundTrip(t *testing.T) {
 }
 
 func TestApplyRepoOverlay_Retries(t *testing.T) {
+	t.Parallel()
 	dst := Config{}
 	src := Config{Retries: intPtr(2)}
 	result, keys := applyRepoOverlay(dst, src)
@@ -849,15 +897,12 @@ func TestApplyRepoOverlay_Retries(t *testing.T) {
 	}
 }
 
-// TestApplyRepoOverlay_RetriesZeroNotOverridden documents that retries: 0 in a
-// repo config cannot clear a non-zero global value. This is intentional: the
-// same > 0 sentinel used by cycles and timeout is applied here for consistency.
-// A follow-up could allow zero to mean "disable" if that use case arises.
 // TestApplyRepoOverlay_RetriesZeroOverridesGlobal documents that retries: 0 in
 // a repo config must override a non-zero global value. This requires *int so
 // that a nil pointer (absent from JSON) is distinguishable from a pointer to 0
 // (explicitly set to zero).
 func TestApplyRepoOverlay_RetriesZeroOverridesGlobal(t *testing.T) {
+	t.Parallel()
 	dst := Config{Retries: intPtr(2)}
 	src := Config{Retries: intPtr(0)}
 	result, keys := applyRepoOverlay(dst, src)
@@ -878,6 +923,7 @@ func TestApplyRepoOverlay_RetriesZeroOverridesGlobal(t *testing.T) {
 // TestApplyRepoOverlay_RetriesAbsentDoesNotOverride documents that a repo
 // config with no retries field (nil pointer) leaves the global value intact.
 func TestApplyRepoOverlay_RetriesAbsentDoesNotOverride(t *testing.T) {
+	t.Parallel()
 	dst := Config{Retries: intPtr(2)}
 	src := Config{} // Retries is nil — not set in repo config
 	result, keys := applyRepoOverlay(dst, src)
@@ -896,6 +942,7 @@ func intPtr(n int) *int { return &n }
 // --- review_every key ---
 
 func TestSet_ReviewEvery_Valid(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "review_every", "3")
 	if err != nil {
@@ -907,6 +954,7 @@ func TestSet_ReviewEvery_Valid(t *testing.T) {
 }
 
 func TestSet_ReviewEvery_One(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "review_every", "1")
 	if err != nil {
@@ -918,6 +966,7 @@ func TestSet_ReviewEvery_One(t *testing.T) {
 }
 
 func TestSet_ReviewEvery_Zero_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "review_every", "0")
 	if err == nil {
@@ -926,6 +975,7 @@ func TestSet_ReviewEvery_Zero_ReturnsError(t *testing.T) {
 }
 
 func TestSet_ReviewEvery_Negative_ReturnsError(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	_, err := Set(cfg, "review_every", "-1")
 	if err == nil {
@@ -934,6 +984,7 @@ func TestSet_ReviewEvery_Negative_ReturnsError(t *testing.T) {
 }
 
 func TestGet_ReviewEvery_Nil(t *testing.T) {
+	t.Parallel()
 	cfg := Config{} // ReviewEvery is nil
 	val, err := Get(cfg, "review_every")
 	if err != nil {
@@ -945,6 +996,7 @@ func TestGet_ReviewEvery_Nil(t *testing.T) {
 }
 
 func TestGet_ReviewEvery_Set(t *testing.T) {
+	t.Parallel()
 	cfg := Config{ReviewEvery: intPtr(4)}
 	val, err := Get(cfg, "review_every")
 	if err != nil {
@@ -956,6 +1008,7 @@ func TestGet_ReviewEvery_Set(t *testing.T) {
 }
 
 func TestGet_ReviewEvery_RoundTrip(t *testing.T) {
+	t.Parallel()
 	cfg := Config{}
 	updated, err := Set(cfg, "review_every", "3")
 	if err != nil {
@@ -971,6 +1024,7 @@ func TestGet_ReviewEvery_RoundTrip(t *testing.T) {
 }
 
 func TestApplyRepoOverlay_ReviewEvery(t *testing.T) {
+	t.Parallel()
 	dst := Config{}
 	src := Config{ReviewEvery: intPtr(2)}
 	result, keys := applyRepoOverlay(dst, src)
@@ -989,6 +1043,7 @@ func TestApplyRepoOverlay_ReviewEvery(t *testing.T) {
 }
 
 func TestApplyRepoOverlay_ReviewEveryAbsentDoesNotOverride(t *testing.T) {
+	t.Parallel()
 	dst := Config{ReviewEvery: intPtr(3)}
 	src := Config{} // ReviewEvery is nil
 	result, keys := applyRepoOverlay(dst, src)
@@ -1003,6 +1058,7 @@ func TestApplyRepoOverlay_ReviewEveryAbsentDoesNotOverride(t *testing.T) {
 }
 
 func TestGet_NotifyWebhook(t *testing.T) {
+	t.Parallel()
 	cfg := Config{NotifyWebhook: "https://hooks.slack.com/test"}
 	val, err := Get(cfg, "notify_webhook")
 	if err != nil {
@@ -1034,5 +1090,165 @@ func TestLoadWithRepo_RepoConfigOverridesCycles(t *testing.T) {
 	}
 	if cfg.Backend != defaultConfig.Backend {
 		t.Errorf("backend = %q, want %q", cfg.Backend, defaultConfig.Backend)
+	}
+}
+
+// --- applyRepoOverlay (reviewers / review_strategy) ---
+
+func TestApplyRepoOverlay_ReviewersOverrides(t *testing.T) {
+	t.Parallel()
+	dst := Config{}
+	src := Config{Reviewers: &Reviewers{General: "new-general.md", Specialized: []string{"spec.md"}}}
+	result, keys := applyRepoOverlay(dst, src)
+	if result.Reviewers == nil || result.Reviewers.General != "new-general.md" {
+		t.Errorf("Reviewers.General = %v, want new-general.md", result.Reviewers)
+	}
+	found := false
+	for _, k := range keys {
+		if k == "reviewers" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("overlay keys = %v, want reviewers to be present", keys)
+	}
+}
+
+func TestApplyRepoOverlay_ReviewStrategyOverrides(t *testing.T) {
+	t.Parallel()
+	dst := Config{}
+	src := Config{ReviewStrategy: &ReviewStrategy{Mode: "always", MajorityThreshold: floatPtr(0.8)}}
+	result, keys := applyRepoOverlay(dst, src)
+	if result.ReviewStrategy == nil || result.ReviewStrategy.Mode != "always" {
+		t.Errorf("ReviewStrategy = %v, want mode=always", result.ReviewStrategy)
+	}
+	found := false
+	for _, k := range keys {
+		if k == "review_strategy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("overlay keys = %v, want review_strategy to be present", keys)
+	}
+}
+
+func TestApplyRepoOverlay_ReviewersNilDoesNotOverride(t *testing.T) {
+	t.Parallel()
+	existing := &Reviewers{General: "existing.md"}
+	dst := Config{Reviewers: existing}
+	src := Config{} // Reviewers is nil
+	result, keys := applyRepoOverlay(dst, src)
+	if result.Reviewers == nil || result.Reviewers.General != "existing.md" {
+		t.Errorf("Reviewers should not be overridden by nil src, got %v", result.Reviewers)
+	}
+	for _, k := range keys {
+		if k == "reviewers" {
+			t.Errorf("overlay keys should not include reviewers when src.Reviewers is nil, got %v", keys)
+		}
+	}
+}
+
+// --- MigrateReviewerAgent ---
+
+func TestMigrateReviewerAgent(t *testing.T) {
+	t.Parallel()
+	cfg := Config{ReviewerAgent: "path/to/agent.md"}
+	MigrateReviewerAgent(&cfg)
+	if cfg.Reviewers == nil {
+		t.Fatal("Reviewers should not be nil after migration")
+	}
+	if cfg.Reviewers.General != "path/to/agent.md" {
+		t.Errorf("Reviewers.General = %q, want %q", cfg.Reviewers.General, "path/to/agent.md")
+	}
+}
+
+func TestMigrateNoOp(t *testing.T) {
+	t.Parallel()
+	existing := &Reviewers{General: "other/agent.md"}
+	cfg := Config{ReviewerAgent: "path/to/agent.md", Reviewers: existing}
+	MigrateReviewerAgent(&cfg)
+	if cfg.Reviewers.General != "other/agent.md" {
+		t.Errorf("migration must not overwrite existing Reviewers: got %q", cfg.Reviewers.General)
+	}
+}
+
+func TestMigrateNoOp_BothZero(t *testing.T) {
+	t.Parallel()
+	// Invariant: zero ReviewerAgent + nil Reviewers is a valid state; Migrate must not panic or populate.
+	cfg := Config{}
+	MigrateReviewerAgent(&cfg)
+	if cfg.Reviewers != nil {
+		t.Errorf("expected Reviewers to remain nil when ReviewerAgent is empty, got %v", cfg.Reviewers)
+	}
+}
+
+func TestEffectiveReviewersNilFallback(t *testing.T) {
+	t.Parallel()
+	cfg := Config{ReviewerAgent: "path/to/reviewer.md"}
+	r := EffectiveReviewers(cfg)
+	if r.General != "path/to/reviewer.md" {
+		t.Errorf("EffectiveReviewers with nil Reviewers should use ReviewerAgent, got %q", r.General)
+	}
+}
+
+func TestEffectiveReviewersUsesReviewersField(t *testing.T) {
+	t.Parallel()
+	cfg := Config{
+		ReviewerAgent: "legacy.md",
+		Reviewers:     &Reviewers{General: "new.md", Specialized: []string{"spec.md"}},
+	}
+	r := EffectiveReviewers(cfg)
+	if r.General != "new.md" {
+		t.Errorf("EffectiveReviewers should prefer Reviewers field, got %q", r.General)
+	}
+	if len(r.Specialized) != 1 || r.Specialized[0] != "spec.md" {
+		t.Errorf("Specialized = %v, want [spec.md]", r.Specialized)
+	}
+}
+
+func TestEffectiveReviewStrategyPartial(t *testing.T) {
+	t.Parallel()
+	cfg := Config{ReviewStrategy: &ReviewStrategy{Mode: "always"}}
+	s := EffectiveReviewStrategy(cfg)
+	if s.Mode != "always" {
+		t.Errorf("Mode = %q, want always", s.Mode)
+	}
+	if s.GeneralEvery != 1 {
+		t.Errorf("GeneralEvery = %d, want 1 (default)", s.GeneralEvery)
+	}
+	if s.SpecializedEvery != 3 {
+		t.Errorf("SpecializedEvery = %d, want 3 (default)", s.SpecializedEvery)
+	}
+	if s.MajorityThreshold == nil || *s.MajorityThreshold != 0.6 {
+		t.Errorf("MajorityThreshold = %v, want 0.6 (default)", s.MajorityThreshold)
+	}
+}
+
+func TestEffectiveReviewStrategyDefaults(t *testing.T) {
+	t.Parallel()
+	cfg := Config{}
+	s := EffectiveReviewStrategy(cfg)
+	if s.Mode != "smart" {
+		t.Errorf("Mode = %q, want %q", s.Mode, "smart")
+	}
+	if s.GeneralEvery != 1 {
+		t.Errorf("GeneralEvery = %d, want 1", s.GeneralEvery)
+	}
+	if s.SpecializedEvery != 3 {
+		t.Errorf("SpecializedEvery = %d, want 3", s.SpecializedEvery)
+	}
+	if s.MajorityThreshold == nil || *s.MajorityThreshold != 0.6 {
+		t.Errorf("MajorityThreshold = %v, want 0.6", s.MajorityThreshold)
+	}
+}
+
+func TestEffectiveReviewStrategy_ExplicitZeroThreshold(t *testing.T) {
+	t.Parallel()
+	// Invariant: explicit 0.0 means "any approval counts" — must not be overwritten by default 0.6.
+	cfg := Config{ReviewStrategy: &ReviewStrategy{MajorityThreshold: floatPtr(0.0)}}
+	s := EffectiveReviewStrategy(cfg)
+	if s.MajorityThreshold == nil || *s.MajorityThreshold != 0.0 {
+		t.Errorf("MajorityThreshold = %v, want explicit 0.0 to be preserved", s.MajorityThreshold)
 	}
 }

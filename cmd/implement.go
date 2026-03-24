@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +12,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/willmurray/looper/internal/agent"
 	"github.com/willmurray/looper/internal/config"
+	"github.com/willmurray/looper/internal/detect"
 	"github.com/willmurray/looper/internal/git"
 	"github.com/willmurray/looper/internal/guards"
 	"github.com/willmurray/looper/internal/notify"
@@ -19,6 +22,7 @@ import (
 	"github.com/willmurray/looper/internal/progress"
 	"github.com/willmurray/looper/internal/runlog"
 	"github.com/willmurray/looper/internal/runner"
+	"github.com/willmurray/looper/internal/selector"
 	"github.com/willmurray/looper/internal/signals"
 	looperstate "github.com/willmurray/looper/internal/state"
 	"github.com/willmurray/looper/internal/ui"
@@ -30,12 +34,15 @@ var (
 	flagTimeout     int
 	flagDryRun      bool
 	flagYes         bool
-	flagReviewer    string
+	flagReviewer    string // TODO: wire up --reviewer flag to override reviewer_agent per-run
 	flagStream      bool
 	flagNotify      bool
 	flagRetries     int
 	flagReviewEvery int
 )
+
+// Perf: compiled once at startup; matched on every reviewer response.
+var jobsDoneRe = regexp.MustCompile(`(?i)job.*s\s+done`)
 
 // Safety guarantees:
 //   - Never pushes code to a remote
@@ -248,7 +255,8 @@ func shouldReview(i, cycles, reviewEvery int) bool {
 // runImplement and runStart after all preflight checks have passed.
 func implementLoop(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout, retries, reviewEvery int, stream bool) error {
 	// Invariant: stale state file from a prior interrupted run must not bleed into a fresh run.
-	if _, statErr := os.Stat(looperstate.Path(ticket)); statErr == nil {
+	// Check both new and legacy paths via a Read probe.
+	if _, statErr := looperstate.Read(ticket); statErr == nil {
 		_ = looperstate.Delete(ticket)
 		ui.Warn("Deleted stale state file — starting fresh")
 	}
@@ -269,19 +277,52 @@ func appendRunLog(ticket, outcome string, cyclesUsed, cyclesMax int, guardEvents
 	})
 }
 
+// buildMetadataMap loads agent metadata for all reviewers in r, keyed by path.
+func buildMetadataMap(r *config.Reviewers) map[string]agent.Metadata {
+	m := map[string]agent.Metadata{}
+	if r == nil {
+		return m
+	}
+	paths := []string{r.General}
+	paths = append(paths, r.Specialized...)
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		expanded := config.ExpandPath(p)
+		md, err := agent.ParseMetadata(expanded)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				ui.Warn("reviewer agent file not found: %s — check your config", expanded)
+			} else {
+				ui.Warn("could not parse agent metadata %s: %v", expanded, err)
+			}
+			continue
+		}
+		md.Path = expanded
+		// Invariant: keys are always unexpanded paths; callers must not expand before passing to SelectReviewers.
+		m[p] = md
+	}
+	return m
+}
+
 // implementLoopFrom is the shared loop body used by implementLoop and resumeCmd.
-// startCycle lets resume skip already-completed cycles; g carries restored guard
-// counters so thrash/stuck detection is continuous across resumptions.
+// startCycle lets resume skip already-completed cycles; guardState carries restored
+// guard counters so thrash/stuck detection is continuous across resumptions.
 func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile string, cycles, timeout, retries, reviewEvery int, stream bool, startCycle int, guardState *guards.State, startedAt time.Time) error {
 	skillPath := config.ExpandPath(cfg.SkillPath)
-	reviewerAgent := config.ExpandPath(cfg.ReviewerAgent)
+	// Why: unexpanded so the loop's ExpandPath call handles all paths uniformly (metadataMap keys are also unexpanded).
+	reviewerAgent := cfg.ReviewerAgent
 
 	planContent, err := os.ReadFile(planFile)
 	if err != nil {
 		return fmt.Errorf("could not read plan file: %w", err)
 	}
 
-	progressFile := ticket + "_PROGRESS.md"
+	config.MigrateReviewerAgent(&cfg)
+	metadataMap := buildMetadataMap(cfg.Reviewers)
+
+	progressFile := ensureProgressPath(ticket)
 	pw := progress.New(progressFile, ticket, planFile, cycles, timeout)
 	if startCycle == 1 {
 		if err := pw.WriteHeader(); err != nil {
@@ -297,8 +338,6 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 
 	var guardEvents []string
 	var lastReviewerOutput string
-
-	jobsDoneRe := regexp.MustCompile(`(?i)job.*s\s+done`)
 
 	for i := startCycle; i <= cycles; i++ {
 		iterStart := time.Now()
@@ -382,52 +421,45 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 			if err != nil {
 				return fmt.Errorf("could not read progress file before review at iteration %d: %w", i, err)
 			}
-			reviewMsg := fmt.Sprintf("[%s] Reviewing...", time.Now().Format("15:04:05"))
-			var reviewSpinner *ui.Spinner
-			reviewPrompt := buildReviewPrompt(string(planContent), lastNRuns(string(reviewProgressBytes), 2), reviewerAgent)
-			var reviewResult runner.Result
-			if stream {
-				fmt.Fprintln(os.Stderr, reviewMsg)
-				reviewResult = runner.RunWithRetry(ctx, runner.RunStreamAsyncFn(os.Stdout), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
-			} else {
-				reviewSpinner = ui.NewSpinner(reviewMsg)
-				reviewSpinner.Start()
-				reviewResult = runner.RunWithRetry(ctx, runner.RunAsyncFn(), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
+			reviewProgressContent := lastNRuns(string(reviewProgressBytes), 2)
+
+			detected := detect.FromGitDiff(gitDiff)
+			strategy := config.EffectiveReviewStrategy(cfg)
+			reviewerPaths := selector.SelectReviewers(
+				config.EffectiveReviewers(cfg),
+				strategy,
+				metadataMap,
+				detected,
+				i, cycles,
+			)
+
+			// Fall back to legacy reviewer_agent if no reviewers configured.
+			if len(reviewerPaths) == 0 && reviewerAgent != "" {
+				reviewerPaths = []string{reviewerAgent}
 			}
 
-			if reviewResult.Cancelled {
-				if reviewSpinner != nil {
-					reviewSpinner.Abort()
+			approvals := 0
+			var allReviewOutputs []string
+			reviewerApprovals := map[string]bool{}
+
+			for _, reviewerPath := range reviewerPaths {
+				reviewerPath = config.ExpandPath(reviewerPath)
+				output, approved, runErr := runReviewer(ctx, cfg, reviewerPath, string(planContent), reviewProgressContent, progressFile, timeout, retries, stream, pw, i)
+				if runErr != nil {
+					appendRunLog(ticket, "review-failed", i, cycles, guardEvents, lastReviewerOutput, startedAt)
+					return runErr
 				}
-				fmt.Println()
-				ui.Alert("Interrupted — committing partial work")
-				git.CommitWIP(i, "review")
-				_ = pw.WriteSummary("interrupted", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
-				appendRunLog(ticket, "interrupted", i, cycles, guardEvents, lastReviewerOutput, startedAt)
-				return fmt.Errorf("interrupted")
-			}
-			if reviewSpinner != nil {
-				reviewSpinner.Stop()
+				allReviewOutputs = append(allReviewOutputs, output)
+				_ = pw.WriteReviewerResult(reviewerPath, output)
+				reviewerApprovals[reviewerPath] = approved
+				if approved {
+					approvals++
+				}
 			}
 
-			if reviewResult.TimedOut {
-				_ = pw.WriteGuardTriggered(fmt.Sprintf("Review timeout after %ds", timeout))
-				ui.Alert("Review agent timeout")
-				git.CommitWIP(i, "review")
-				appendRunLog(ticket, "review-timeout", i, cycles, guardEvents, lastReviewerOutput, startedAt)
-				return fmt.Errorf("review timed out at iteration %d", i)
-			}
-			if reviewResult.ExitCode != 0 {
-				_ = pw.WriteGuardTriggered(fmt.Sprintf("Review failed (exit code %d)", reviewResult.ExitCode))
-				ui.Error("Review failed (code %d)", reviewResult.ExitCode)
-				appendRunLog(ticket, "review-failed", i, cycles, guardEvents, lastReviewerOutput, startedAt)
-				return fmt.Errorf("review agent failed at iteration %d", i)
-			}
+			lastReviewerOutput = strings.Join(allReviewOutputs, "\n\n---\n\n")
 
-			lastReviewerOutput = reviewResult.Output
-			_ = pw.WriteReview(reviewResult.Output)
-
-			g2 := guardState.CheckRepeatedIssues(reviewResult.Output)
+			g2 := guardState.CheckRepeatedIssues(lastReviewerOutput)
 			if g2.Warning {
 				_ = pw.WriteGuardAlert(g2.Message)
 				ui.Warn("%s", g2.Message)
@@ -453,19 +485,22 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 			}
 
 			// --- PERSIST STATE (best-effort) ---
+			// Gotcha: ReviewerApprovals is keyed by expanded paths; metadataMap uses unexpanded paths — never compare the two maps directly.
 			_ = looperstate.Write(looperstate.State{
-				Ticket:         ticket,
-				PlanFile:       planFile,
-				CyclesTotal:    cycles,
-				CycleCompleted: i,
-				ThrashCount:    guardState.ThrashCount,
-				StuckCount:     guardState.StuckCount,
-				PrevIssues:     guardState.PrevIssueHash,
-				StartedAt:      startedAt,
-				UpdatedAt:      time.Now().UTC(),
+				Ticket:            ticket,
+				PlanFile:          planFile,
+				CyclesTotal:       cycles,
+				CycleCompleted:    i,
+				ThrashCount:       guardState.ThrashCount,
+				StuckCount:        guardState.StuckCount,
+				PrevIssues:        guardState.PrevIssueHash,
+				StartedAt:         startedAt,
+				UpdatedAt:         time.Now().UTC(),
+				ReviewerApprovals: reviewerApprovals,
 			})
 
-			if jobsDoneRe.MatchString(reviewResult.Output) {
+			approved := selector.MajorityApproved(approvals, len(reviewerPaths), *strategy.MajorityThreshold)
+			if approved {
 				_ = pw.WriteSuccess(i)
 				_ = pw.WriteSummary("complete", i, guardState.ThrashCount, guardState.StuckCount, git.RecentCommits(i))
 				_ = looperstate.Delete(ticket)
@@ -506,6 +541,58 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 	appendRunLog(ticket, "max-cycles", totalIterations, cycles, guardEvents, lastReviewerOutput, startedAt)
 
 	return fmt.Errorf("max cycles (%d) reached without completion", cycles)
+}
+
+// runReviewer runs a single reviewer agent and returns (output, approved, err).
+// err is non-nil only for hard failures (cancelled, timeout, exit code != 0).
+func runReviewer(ctx context.Context, cfg config.Config, reviewerPath, planContent, progressContent, progressFile string, timeout, retries int, stream bool, pw *progress.Writer, iteration int) (string, bool, error) {
+	reviewMsg := fmt.Sprintf("[%s] Reviewing (%s)...", time.Now().Format("15:04:05"), filepath.Base(reviewerPath))
+	reviewPrompt := buildReviewPrompt(planContent, progressContent, reviewerPath)
+	var reviewSpinner *ui.Spinner
+	var reviewResult runner.Result
+	if stream {
+		fmt.Fprintln(os.Stderr, reviewMsg)
+		reviewResult = runner.RunWithRetry(ctx, runner.RunStreamAsyncFn(os.Stdout), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
+	} else {
+		reviewSpinner = ui.NewSpinner(reviewMsg)
+		reviewSpinner.Start()
+		reviewResult = runner.RunWithRetry(ctx, runner.RunAsyncFn(), reviewPrompt, timeout, cfg.Backend, retries, "review", pw, ui.Warn)
+	}
+
+	if reviewResult.Cancelled {
+		if reviewSpinner != nil {
+			reviewSpinner.Abort()
+		}
+		fmt.Println()
+		ui.Alert("Interrupted — committing partial work")
+		git.CommitWIP(iteration, "review")
+		return "", false, fmt.Errorf("interrupted")
+	}
+	if reviewSpinner != nil {
+		reviewSpinner.Stop()
+	}
+	if reviewResult.TimedOut {
+		_ = pw.WriteGuardTriggered(fmt.Sprintf("Review timeout after %ds", timeout))
+		ui.Alert("Review agent timeout")
+		git.CommitWIP(iteration, "review")
+		return "", false, fmt.Errorf("review timed out at iteration %d", iteration)
+	}
+	if reviewResult.ExitCode != 0 {
+		_ = pw.WriteGuardTriggered(fmt.Sprintf("Review failed (exit code %d)", reviewResult.ExitCode))
+		ui.Error("Review failed (code %d)", reviewResult.ExitCode)
+		return "", false, fmt.Errorf("review agent failed at iteration %d", iteration)
+	}
+
+	approved := jobsDoneRe.MatchString(reviewResult.Output)
+	return reviewResult.Output, approved, nil
+}
+
+// ensureProgressPath returns the progress file path under .looper/{ticket}/.
+// Gotcha: MkdirAll is best-effort; WriteHeader catches real failures.
+func ensureProgressPath(ticket string) string {
+	dir := filepath.Join(".looper", ticket)
+	_ = os.MkdirAll(dir, 0o755)
+	return filepath.Join(dir, ticket+"_PROGRESS.md")
 }
 
 // confirmGitStaging warns the user that git add -A will be run and prompts for
