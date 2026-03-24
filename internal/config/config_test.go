@@ -1059,6 +1059,48 @@ func TestMigrateNoOp(t *testing.T) {
 	}
 }
 
+func TestEffectiveReviewersNilFallback(t *testing.T) {
+	t.Parallel()
+	cfg := Config{ReviewerAgent: "path/to/reviewer.md"}
+	r := EffectiveReviewers(cfg)
+	if r.General != "path/to/reviewer.md" {
+		t.Errorf("EffectiveReviewers with nil Reviewers should use ReviewerAgent, got %q", r.General)
+	}
+}
+
+func TestEffectiveReviewersUsesReviewersField(t *testing.T) {
+	t.Parallel()
+	cfg := Config{
+		ReviewerAgent: "legacy.md",
+		Reviewers:     &Reviewers{General: "new.md", Specialized: []string{"spec.md"}},
+	}
+	r := EffectiveReviewers(cfg)
+	if r.General != "new.md" {
+		t.Errorf("EffectiveReviewers should prefer Reviewers field, got %q", r.General)
+	}
+	if len(r.Specialized) != 1 || r.Specialized[0] != "spec.md" {
+		t.Errorf("Specialized = %v, want [spec.md]", r.Specialized)
+	}
+}
+
+func TestEffectiveReviewStrategyPartial(t *testing.T) {
+	t.Parallel()
+	cfg := Config{ReviewStrategy: &ReviewStrategy{Mode: "always"}}
+	s := EffectiveReviewStrategy(cfg)
+	if s.Mode != "always" {
+		t.Errorf("Mode = %q, want always", s.Mode)
+	}
+	if s.GeneralEvery != 1 {
+		t.Errorf("GeneralEvery = %d, want 1 (default)", s.GeneralEvery)
+	}
+	if s.SpecializedEvery != 3 {
+		t.Errorf("SpecializedEvery = %d, want 3 (default)", s.SpecializedEvery)
+	}
+	if s.MajorityThreshold != 0.6 {
+		t.Errorf("MajorityThreshold = %f, want 0.6 (default)", s.MajorityThreshold)
+	}
+}
+
 func TestEffectiveReviewStrategyDefaults(t *testing.T) {
 	cfg := Config{}
 	s := EffectiveReviewStrategy(cfg)

@@ -9,6 +9,7 @@ import (
 )
 
 func TestParseMetadata(t *testing.T) {
+	t.Parallel()
 	content := `---
 role: reviewer
 languages:
@@ -64,6 +65,24 @@ func TestParseMetadataNoFrontmatter(t *testing.T) {
 	}
 	if m.Role != "" || len(m.Languages) != 0 {
 		t.Errorf("expected zero Metadata for file without frontmatter, got %+v", m)
+	}
+}
+
+func TestParseMetadataDashPrefix(t *testing.T) {
+	t.Parallel()
+	// "----" must not be treated as a frontmatter opener.
+	content := "----\nkey: val\n---\n# content"
+	path := filepath.Join(t.TempDir(), "agent.md")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	m, err := agent.ParseMetadata(path)
+	if err != nil {
+		t.Fatalf("ParseMetadata: %v", err)
+	}
+	if m.Role != "" || len(m.Languages) != 0 {
+		t.Errorf("expected zero Metadata for '----' prefix, got %+v", m)
 	}
 }
 

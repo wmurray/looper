@@ -27,13 +27,12 @@ func ParseMetadata(path string) (Metadata, error) {
 	}
 
 	content := string(data)
-	if !strings.HasPrefix(content, "---") {
+	if !strings.HasPrefix(content, "---\n") {
 		return Metadata{Path: path}, nil
 	}
 
-	// Find the closing --- delimiter.
-	rest := content[3:]
-	end := strings.Index(rest, "\n---")
+	rest := content[4:]
+	end := strings.Index(rest, "\n---\n")
 	if end < 0 {
 		return Metadata{Path: path}, nil
 	}

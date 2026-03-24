@@ -105,7 +105,7 @@ func Delete(ticket string) error {
 	for _, p := range []string{NewPath(ticket), Path(ticket)} {
 		err := os.Remove(p)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+			return fmt.Errorf("state.Delete: %w", err)
 		}
 	}
 	return nil

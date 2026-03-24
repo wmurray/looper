@@ -163,6 +163,36 @@ func TestRead_MissingFile(t *testing.T) {
 	})
 }
 
+func TestDelete_BothPaths(t *testing.T) {
+	inTempDir(t, func() {
+		ticket := "BOTH-1"
+		s := state.State{Ticket: ticket, CyclesTotal: 3, CycleCompleted: 1}
+		data, err := json.Marshal(s)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if err := os.WriteFile(state.Path(ticket), data, 0o644); err != nil {
+			t.Fatalf("write legacy: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Dir(state.NewPath(ticket)), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(state.NewPath(ticket), data, 0o644); err != nil {
+			t.Fatalf("write new: %v", err)
+		}
+
+		if err := state.Delete(ticket); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		if _, err := os.Stat(state.Path(ticket)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("legacy path still exists after Delete")
+		}
+		if _, err := os.Stat(state.NewPath(ticket)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("new path still exists after Delete")
+		}
+	})
+}
+
 func TestDelete_MissingFile(t *testing.T) {
 	inTempDir(t, func() {
 		if err := state.Delete("NOTEXIST-99"); err != nil {

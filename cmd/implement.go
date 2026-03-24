@@ -290,10 +290,12 @@ func buildMetadataMap(r *config.Reviewers) map[string]agent.Metadata {
 		}
 		expanded := config.ExpandPath(p)
 		md, err := agent.ParseMetadata(expanded)
-		if err == nil {
-			md.Path = expanded
-			m[p] = md
+		if err != nil {
+			ui.Warn("could not parse agent metadata %s: %v", expanded, err)
+			continue
 		}
+		md.Path = expanded
+		m[p] = md
 	}
 	return m
 }
@@ -310,7 +312,7 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 	config.MigrateReviewerAgent(&cfg)
 	metadataMap := buildMetadataMap(cfg.Reviewers)
 
-	progressFile := progressPath(ticket)
+	progressFile := ensureProgressPath(ticket)
 	pw := progress.New(progressFile, ticket, planFile, cycles, timeout)
 	if startCycle == 1 {
 		if err := pw.WriteHeader(); err != nil {
@@ -430,6 +432,7 @@ func implementLoopFrom(ctx context.Context, cfg config.Config, ticket, planFile 
 			reviewerApprovals := map[string]bool{}
 
 			for _, reviewerPath := range reviewerPaths {
+				reviewerPath = config.ExpandPath(reviewerPath)
 				output, approved, runErr := runReviewer(ctx, cfg, reviewerPath, string(planContent), reviewProgressContent, progressFile, timeout, retries, stream, pw, i)
 				if runErr != nil {
 					appendRunLog(ticket, "review-failed", i, cycles, guardEvents, lastReviewerOutput, startedAt)
@@ -575,9 +578,9 @@ func runReviewer(ctx context.Context, cfg config.Config, reviewerPath, planConte
 	return reviewResult.Output, approved, nil
 }
 
-// progressPath returns the progress file path under .looper/{ticket}/.
+// ensureProgressPath returns the progress file path under .looper/{ticket}/.
 // Gotcha: MkdirAll is best-effort; WriteHeader catches real failures.
-func progressPath(ticket string) string {
+func ensureProgressPath(ticket string) string {
 	dir := filepath.Join(".looper", ticket)
 	_ = os.MkdirAll(dir, 0o755)
 	return filepath.Join(dir, ticket+"_PROGRESS.md")
